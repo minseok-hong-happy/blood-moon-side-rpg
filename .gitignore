@@ -1,0 +1,8 @@
+.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
+dist/*.apk
+dist/SHA256SUMS.txt
+dist/mapping-*.txt
