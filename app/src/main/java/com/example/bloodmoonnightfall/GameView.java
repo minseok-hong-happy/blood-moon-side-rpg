@@ -33,7 +33,7 @@ public final class GameView extends View {
     private static final float GROUND_Y = 866f;
     private static final float CONTROL_TOP = 936f;
     private static final float FIXED_STEP = 1f / 60f;
-    private static final int MAX_ACTIVE_ENEMIES = 6;
+    private static final int MAX_ACTIVE_ENEMIES = 10;
     private static final int MAX_PARTICLES = 420;
 
     private static final int CRIMSON = Color.rgb(214, 31, 70);
@@ -1110,8 +1110,12 @@ public final class GameView extends View {
         }
         spawnTimer -= dt;
         if (spawnTimer <= 0f && aliveEnemyCount() < MAX_ACTIVE_ENEMIES) {
-            spawnEnemy();
-            spawnTimer = progress.wave == RpgRules.WAVES_PER_REGION ? 0.48f : 0.30f;
+            int batchSize = RpgRules.reinforcementBatchSize(aliveEnemyCount(),
+                    remainingToSpawn, MAX_ACTIVE_ENEMIES);
+            for (int index = 0; index < batchSize; index++) {
+                spawnEnemy();
+            }
+            spawnTimer = progress.wave == RpgRules.WAVES_PER_REGION ? 0.26f : 0.16f;
         }
     }
 
@@ -1334,10 +1338,10 @@ public final class GameView extends View {
                 }
                 float difference = b.x - a.x;
                 float distance = Math.abs(difference);
-                if (distance < 58f) {
+                if (distance < 44f) {
                     float direction = difference == 0f ? (second % 2 == 0 ? 1f : -1f)
                             : Math.signum(difference);
-                    float push = (58f - distance) * 0.5f;
+                    float push = (44f - distance) * 0.5f;
                     a.x -= direction * push;
                     b.x += direction * push;
                 }
@@ -3602,7 +3606,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.9.0 DEMO  ·  CENTER COMBAT", 360f, 1120f, textPaint);
+        canvas.drawText("v4.10.0 DEMO  ·  MONSTER RUSH", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {

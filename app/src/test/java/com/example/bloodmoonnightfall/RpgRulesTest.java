@@ -57,9 +57,19 @@ public final class RpgRulesTest {
 
     @Test
     public void wavesProvideDenseEnemyGroupsAndBossEscorts() {
-        assertTrue(RpgRules.waveEnemyCount(0, 1) >= 8);
-        assertTrue(RpgRules.waveEnemyCount(2, 4) >= 18);
-        assertEquals(5, RpgRules.waveEnemyCount(2, RpgRules.WAVES_PER_REGION));
+        assertEquals(18, RpgRules.waveEnemyCount(0, 1));
+        assertEquals(36, RpgRules.waveEnemyCount(2, 4));
+        assertEquals(9, RpgRules.waveEnemyCount(2, RpgRules.WAVES_PER_REGION));
+    }
+
+    @Test
+    public void reinforcementsArriveInGroupsWhenTheFieldIsSparse() {
+        assertEquals(3, RpgRules.reinforcementBatchSize(0, 20, 10));
+        assertEquals(3, RpgRules.reinforcementBatchSize(3, 20, 10));
+        assertEquals(1, RpgRules.reinforcementBatchSize(4, 20, 10));
+        assertEquals(1, RpgRules.reinforcementBatchSize(9, 20, 10));
+        assertEquals(0, RpgRules.reinforcementBatchSize(10, 20, 10));
+        assertEquals(2, RpgRules.reinforcementBatchSize(1, 2, 10));
     }
 
     @Test

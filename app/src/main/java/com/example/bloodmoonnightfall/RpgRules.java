@@ -112,8 +112,17 @@ public final class RpgRules {
     public static int waveEnemyCount(int region, int wave) {
         int safeRegion = clamp(region, 0, REGION_COUNT - 1);
         int safeWave = clamp(wave, 1, WAVES_PER_REGION);
-        return safeWave == WAVES_PER_REGION ? 3 + safeRegion
-                : 6 + safeWave * 2 + safeRegion * 2;
+        return safeWave == WAVES_PER_REGION ? 7 + safeRegion
+                : 14 + safeWave * 4 + safeRegion * 3;
+    }
+
+    public static int reinforcementBatchSize(int activeEnemies, int remainingEnemies,
+                                             int maximumActiveEnemies) {
+        int active = Math.max(0, activeEnemies);
+        int remaining = Math.max(0, remainingEnemies);
+        int availableSlots = Math.max(0, maximumActiveEnemies - active);
+        int desiredBatch = active <= 3 ? 3 : 1;
+        return Math.min(Math.min(desiredBatch, remaining), availableSlots);
     }
 
     public static int enemyMaxHealth(int kind, int region, int wave, int heroLevel,
