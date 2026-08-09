@@ -15,8 +15,8 @@ android {
         applicationId "com.example.bloodmoonnightfall"
         minSdk 23
         targetSdk 35
-        versionCode 41300
-        versionName "4.13.0-demo"
+        versionCode 41400
+        versionName "4.14.0-demo"
     }
 
     signingConfigs {

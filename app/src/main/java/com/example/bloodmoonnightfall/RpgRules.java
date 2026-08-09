@@ -112,8 +112,8 @@ public final class RpgRules {
     public static int waveEnemyCount(int region, int wave) {
         int safeRegion = clamp(region, 0, REGION_COUNT - 1);
         int safeWave = clamp(wave, 1, WAVES_PER_REGION);
-        return safeWave == WAVES_PER_REGION ? 7 + safeRegion
-                : 14 + safeWave * 4 + safeRegion * 3;
+        return safeWave == WAVES_PER_REGION ? 18 + safeRegion * 4
+                : 26 + safeWave * 6 + safeRegion * 5;
     }
 
     public static int reinforcementBatchSize(int activeEnemies, int remainingEnemies,
@@ -121,8 +121,38 @@ public final class RpgRules {
         int active = Math.max(0, activeEnemies);
         int remaining = Math.max(0, remainingEnemies);
         int availableSlots = Math.max(0, maximumActiveEnemies - active);
-        int desiredBatch = active <= 3 ? 3 : 1;
+        int desiredBatch = active <= 4 ? 4 : active <= 7 ? 2 : 1;
         return Math.min(Math.min(desiredBatch, remaining), availableSlots);
+    }
+
+    public static int bossVariantForRegion(int region) {
+        return clamp(region, 0, REGION_COUNT - 1);
+    }
+
+    public static boolean isEliteSpawn(int wave, int spawnSerial, int waveTotal) {
+        int safeWave = clamp(wave, 1, WAVES_PER_REGION);
+        int midpoint = Math.max(4, Math.max(1, waveTotal) / 2);
+        return safeWave >= 2 && safeWave < WAVES_PER_REGION && spawnSerial == midpoint;
+    }
+
+    public static int eliteHealth(int baseHealth) {
+        return Math.max(1, Math.round(Math.max(1, baseHealth) * 2.45f));
+    }
+
+    public static int eliteDamage(int baseDamage) {
+        return Math.max(1, Math.round(Math.max(1, baseDamage) * 1.28f));
+    }
+
+    public static int eliteReward(int baseReward) {
+        return Math.max(1, Math.round(Math.max(1, baseReward) * 2.2f));
+    }
+
+    /** Awards an extra gold burst at every fifth uninterrupted kill. */
+    public static int huntChainBonusGold(int chain, int baseGold) {
+        if (chain < 5 || chain % 5 != 0) {
+            return 0;
+        }
+        return Math.max(20, Math.max(1, baseGold) * (1 + chain / 5));
     }
 
     public static int enemyMaxHealth(int kind, int region, int wave, int heroLevel,
