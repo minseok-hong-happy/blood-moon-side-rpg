@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
-/** Portrait, obstacle-free 2D vampire growth action RPG. */
+/** Portrait idle side-scrolling vampire RPG concept demo. */
 public final class GameView extends View {
     private static final float LOGICAL_WIDTH = 720f;
     private static final float LOGICAL_HEIGHT = 1280f;
@@ -61,13 +61,49 @@ public final class GameView extends View {
             "굶주린 혈귀", "검은 사냥꾼", "잿빛 망령", "태양의 심판관"
     };
 
+    private static final String[] STORY_CHAPTERS = {
+            "PROLOGUE  ·  피 없는 밤",
+            "CHAPTER I  ·  재가 된 맹세",
+            "CHAPTER II  ·  거짓 태양",
+            "DEMO END  ·  혈월의 그릇"
+    };
+    private static final String[][] STORY_SPEAKERS = {
+            {"기록", "리안", "카엘"},
+            {"리안", "카엘", "잿빛 사냥꾼"},
+            {"태양의 심판관", "카엘", "리안"},
+            {"태양의 심판관", "카엘", "기록"}
+    };
+    private static final String[][] STORY_LINES = {
+            {
+                    "태양이 멈춘 지 일곱 번째 밤. 인간과 혈족의 피가 동시에 말라가기 시작했다.",
+                    "카엘, 네 심장에 봉인된 혈월이 이 재앙의 열쇠야. 세 개의 봉인을 찾아.",
+                    "끝까지 걷겠다. 내가 괴물이 되기 전에, 이 밤의 근원을 벤다."
+            },
+            {
+                    "두 번째 봉인은 잿빛 숲에 있어. 하지만 숲은 네가 버린 기억을 먹고 자라.",
+                    "기억을 잃어도 약속은 남는다. 리안에게 새벽을 돌려주겠어.",
+                    "순혈의 후계자여, 네가 구하려는 인간이 첫 번째 봉인을 깨뜨렸다."
+            },
+            {
+                    "세 봉인은 감옥이 아니다. 네 안의 혈월을 완성하는 열쇠다.",
+                    "그렇다면 이 힘의 주인은 혈월이 아니라 나다. 내 피로 결말을 다시 쓴다.",
+                    "성채의 왕좌 아래로 와. 진짜 새벽과 내가 감춘 죄가 그곳에 있어."
+            },
+            {
+                    "네가 혈월을 쫓은 것이 아니다. 혈월이 자신의 몸을 되찾으러 너를 불렀다.",
+                    "나는 그릇이 아니다. 밤을 삼키고도 인간으로 남겠다는 선택이다.",
+                    "다음 장: 황혼 도시. 리안의 배신과 카엘의 첫 번째 일출."
+            }
+    };
+
     private enum Screen {
         TITLE,
         PLAYING,
         PAUSED,
         GROWTH,
         DEFEAT,
-        NEW_CONFIRM
+        NEW_CONFIRM,
+        STORY
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -140,6 +176,13 @@ public final class GameView extends View {
     private float levelBannerTimer;
     private float chapterBannerTimer;
     private String levelBannerText = "";
+
+    private float worldTravel;
+    private int storyChapter;
+    private int storyLine;
+    private boolean storyStartsWave;
+    private boolean storyFullRestore;
+    private boolean storyFinale;
 
     private boolean saveDirty;
     private float saveDelay;
@@ -226,7 +269,7 @@ public final class GameView extends View {
             return;
         }
         combatAtlasLoadAttempted = true;
-        heroAtlas = decodeBitmap(R.drawable.hero_side_atlas, false);
+        heroAtlas = decodeBitmap(R.drawable.hero_side_atlas_v4, false);
         enemyAtlas = decodeBitmap(R.drawable.enemy_side_atlas, false);
     }
 
@@ -371,13 +414,6 @@ public final class GameView extends View {
         if (dashPressed && (heroAction == ACTION_NONE || heroAction == ACTION_ATTACK)) {
             startDash();
         }
-        if (attackPressed) {
-            if (heroAction == ACTION_ATTACK) {
-                comboQueued = true;
-            } else if (heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-                startAttack(comboGrace > 0f ? (comboIndex + 1) % 3 : 0);
-            }
-        }
         if (spearPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
             tryStartSpear();
         }
@@ -387,13 +423,20 @@ public final class GameView extends View {
         if (novaPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
             tryStartNova();
         }
+        if (heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
+            Enemy target = nearestEnemy(1000f);
+            if (target != null) {
+                hero.facing = target.x >= hero.x ? 1 : -1;
+                if (Math.abs(target.x - hero.x) <= 132f) {
+                    startAttack(comboGrace > 0f ? (comboIndex + 1) % 3 : 0);
+                }
+            }
+        }
     }
 
     private void startDash() {
-        int direction = rightHeld ? 1 : leftHeld ? -1 : hero.facing;
-        if (direction == 0) {
-            direction = 1;
-        }
+        Enemy target = nearestEnemy(1000f);
+        int direction = target == null || target.x >= hero.x ? 1 : -1;
         hero.facing = direction;
         hero.dashTimer = 0.19f;
         hero.invulnerability = Math.max(hero.invulnerability, 0.24f);
@@ -521,24 +564,33 @@ public final class GameView extends View {
             hero.dashTimer = Math.max(0f, hero.dashTimer - dt);
             hero.x += hero.velocity * dt;
             hero.runDistance += Math.abs(hero.velocity) * dt;
+            worldTravel += Math.max(0f, hero.velocity) * dt;
             if (hero.dashTimer <= 0f) {
                 hero.velocity *= 0.28f;
             }
         } else {
             float movementMultiplier = heroAction == ACTION_NONE ? 1f : 0.32f;
-            float desired = (rightHeld ? 1f : 0f) - (leftHeld ? 1f : 0f);
-            if (desired != 0f) {
-                hero.facing = desired > 0f ? 1 : -1;
-            } else if (heroAction == ACTION_NONE) {
-                Enemy target = nearestEnemy(360f);
-                if (target != null) {
-                    hero.facing = target.x >= hero.x ? 1 : -1;
+            Enemy target = nearestEnemy(1000f);
+            float desired = 0f;
+            if (target == null) {
+                desired = remainingToSpawn > 0 ? 1f : 0f;
+            } else {
+                float gap = target.x - hero.x;
+                if (Math.abs(gap) > 112f) {
+                    desired = gap > 0f ? 1f : -1f;
                 }
+                hero.facing = gap >= 0f ? 1 : -1;
             }
             float targetVelocity = desired * 218f * movementMultiplier;
             hero.velocity = approach(hero.velocity, targetVelocity, 1050f * dt);
             hero.x += hero.velocity * dt;
             hero.runDistance += Math.abs(hero.velocity) * dt;
+            worldTravel += Math.max(0f, hero.velocity) * dt;
+            int footstep = (int) (hero.runDistance / 46f);
+            if (Math.abs(hero.velocity) > 80f && footstep > hero.lastFootstep) {
+                hero.lastFootstep = footstep;
+                addFootstep(hero.x - hero.facing * 18f, GROUND_Y + 2f);
+            }
         }
         hero.x = RpgRules.clamp(hero.x, RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
     }
@@ -628,13 +680,8 @@ public final class GameView extends View {
         Enemy enemy = new Enemy();
         enemy.id = nextEnemyId++;
         enemy.kind = kind;
-        boolean spawnRight = (spawnSerial & 1) == 0;
-        if (spawnRight && hero.x > 510f) {
-            spawnRight = false;
-        } else if (!spawnRight && hero.x < 210f) {
-            spawnRight = true;
-        }
-        enemy.x = spawnRight ? 638f : 82f;
+        // This is a side-scrolling hunt: danger always enters from the road ahead.
+        enemy.x = 638f;
         enemy.facing = enemy.x > hero.x ? -1 : 1;
         enemy.maxHealth = RpgRules.enemyMaxHealth(kind, progress.region, progress.wave,
                 progress.level, progress.chapterClears);
@@ -1049,6 +1096,8 @@ public final class GameView extends View {
     private void advanceAdventure() {
         if (progress.wave < RpgRules.WAVES_PER_REGION) {
             progress.wave++;
+            saveNow();
+            startCurrentWave(false);
         } else {
             progress.bossKills++;
             if (progress.region < RpgRules.REGION_COUNT - 1) {
@@ -1057,17 +1106,14 @@ public final class GameView extends View {
                 chapterBannerTimer = 3.2f;
                 levelBannerText = "새 지역 해금  ·  " + REGION_NAMES[progress.region];
                 levelBannerTimer = 3.2f;
+                saveNow();
+                openStory(progress.region, true, false);
             } else {
                 progress.chapterClears++;
-                progress.region = 0;
-                progress.wave = 1;
-                chapterBannerTimer = 4f;
-                levelBannerText = "밤의 순환 " + (progress.chapterClears + 1) + "단계";
-                levelBannerTimer = 4f;
+                saveNow();
+                openStory(3, false, true);
             }
         }
-        saveNow();
-        startCurrentWave(false);
     }
 
     private void startNewAdventure() {
@@ -1087,14 +1133,47 @@ public final class GameView extends View {
 
     private void beginAdventure() {
         ensureCombatAtlases();
-        hero.reset(275f, 1);
+        hero.reset(190f, 1);
         syncHeroStats(true);
         spearCooldown = 0f;
         siphonCooldown = 0f;
         novaCooldown = 0f;
-        screen = Screen.PLAYING;
-        lastFrameNanos = System.nanoTime();
-        startCurrentWave(true);
+        worldTravel = 0f;
+        openStory(progress.region, true, false);
+    }
+
+    private void openStory(int chapter, boolean fullRestore, boolean finale) {
+        storyChapter = RpgRules.clamp(chapter, 0, STORY_LINES.length - 1);
+        storyLine = 0;
+        storyStartsWave = !finale;
+        storyFullRestore = fullRestore;
+        storyFinale = finale;
+        screen = Screen.STORY;
+        resetPointers();
+    }
+
+    private void advanceStory() {
+        if (screen != Screen.STORY) {
+            return;
+        }
+        storyLine++;
+        if (storyLine < STORY_LINES[storyChapter].length) {
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            return;
+        }
+        if (storyFinale) {
+            progress.region = 0;
+            progress.wave = 1;
+            saveNow();
+            screen = Screen.TITLE;
+            continueAvailable = true;
+            return;
+        }
+        if (storyStartsWave) {
+            screen = Screen.PLAYING;
+            lastFrameNanos = System.nanoTime();
+            startCurrentWave(storyFullRestore);
+        }
     }
 
     private void startCurrentWave(boolean fullRestore) {
@@ -1113,6 +1192,9 @@ public final class GameView extends View {
         hero.dead = false;
         hero.deadTimer = 0f;
         hero.invulnerability = 0.55f;
+        hero.x = 190f;
+        hero.velocity = 0f;
+        hero.facing = 1;
         heroAction = ACTION_NONE;
         comboQueued = false;
         if (fullRestore) {
@@ -1126,7 +1208,7 @@ public final class GameView extends View {
 
     private void retryCurrentWave() {
         syncHeroStats(true);
-        hero.reset(275f, 1);
+        hero.reset(190f, 1);
         screen = Screen.PLAYING;
         lastFrameNanos = System.nanoTime();
         startCurrentWave(true);
@@ -1328,6 +1410,17 @@ public final class GameView extends View {
         }
     }
 
+    private void addFootstep(float x, float y) {
+        int dust = progress.region == 0 ? Color.rgb(124, 166, 190)
+                : progress.region == 1 ? Color.rgb(135, 104, 111) : Color.rgb(150, 119, 104);
+        for (int index = 0; index < 4; index++) {
+            addParticle(x + random.nextFloat() * 18f - 9f, y,
+                    -hero.facing * (18f + random.nextFloat() * 34f),
+                    -18f - random.nextFloat() * 30f, withAlpha(dust, 150),
+                    2f + random.nextFloat() * 2.5f, 0.28f, 58f);
+        }
+    }
+
     private void addParticle(float x, float y, float velocityX, float velocityY,
                              int color, float radius, float life, float gravity) {
         if (particles.size() >= MAX_PARTICLES) {
@@ -1354,7 +1447,9 @@ public final class GameView extends View {
         canvas.save();
         canvas.translate(shakeX, shakeY);
         drawBackground(canvas);
-        if (screen != Screen.TITLE && screen != Screen.NEW_CONFIRM) {
+        if (screen == Screen.STORY) {
+            drawStoryStage(canvas);
+        } else if (screen != Screen.TITLE && screen != Screen.NEW_CONFIRM) {
             drawArena(canvas);
         } else {
             drawTitleAtmosphere(canvas);
@@ -1366,6 +1461,8 @@ public final class GameView extends View {
             if (screen == Screen.NEW_CONFIRM) {
                 drawNewConfirm(canvas);
             }
+        } else if (screen == Screen.STORY) {
+            drawStory(canvas);
         } else {
             drawHud(canvas);
             if (screen == Screen.PLAYING) {
@@ -1391,7 +1488,7 @@ public final class GameView extends View {
         int region = progress == null ? 0 : RpgRules.clamp(progress.region, 0, 2);
         Bitmap background = obtainBackground(region);
         float parallax = screen == Screen.TITLE ? (float) Math.sin(ambientClock * 0.08f) * 8f
-                : (hero.x - LOGICAL_WIDTH * 0.5f) * 0.025f;
+                : -(worldTravel * 0.035f) % 24f;
         if (background != null && !background.isRecycled()) {
             canvas.drawBitmap(background, null,
                     new RectF(-12f - parallax, -2f, LOGICAL_WIDTH + 12f - parallax,
@@ -1413,6 +1510,28 @@ public final class GameView extends View {
         canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
         drawAmbientMotes(canvas, region);
+        if (screen == Screen.PLAYING || screen == Screen.PAUSED || screen == Screen.GROWTH) {
+            drawTravelingForeground(canvas, region);
+        }
+    }
+
+    private void drawTravelingForeground(Canvas canvas, int region) {
+        float roadOffset = -(worldTravel * 0.72f) % 168f;
+        int stoneColor = region == 0 ? Color.rgb(52, 70, 86)
+                : region == 1 ? Color.rgb(69, 50, 58) : Color.rgb(76, 53, 48);
+        paint.setColor(Color.argb(185, 7, 8, 13));
+        canvas.drawRect(0f, GROUND_Y + 18f, LOGICAL_WIDTH, 936f, paint);
+        for (int index = -1; index < 6; index++) {
+            float x = roadOffset + index * 168f;
+            paint.setColor(withAlpha(stoneColor, 185));
+            canvas.drawOval(new RectF(x, GROUND_Y + 24f, x + 118f, GROUND_Y + 52f), paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(Color.argb(90, 205, 220, 226));
+            canvas.drawArc(new RectF(x, GROUND_Y + 24f, x + 118f, GROUND_Y + 52f),
+                    188f, 148f, false, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
     }
 
     private void drawAmbientMotes(Canvas canvas, int region) {
@@ -1436,6 +1555,22 @@ public final class GameView extends View {
                 Color.TRANSPARENT, Color.argb(218, 4, 5, 12), Shader.TileMode.CLAMP));
         canvas.drawRect(0f, 240f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
+        drawVignette(canvas);
+    }
+
+    private void drawStoryStage(Canvas canvas) {
+        paint.setShader(new LinearGradient(0f, 250f, 0f, LOGICAL_HEIGHT,
+                Color.argb(30, 4, 6, 14), Color.argb(232, 3, 4, 10), Shader.TileMode.CLAMP));
+        canvas.drawRect(0f, 190f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
+        paint.setShader(null);
+        drawFighterShadow(canvas, 200f, 0.9f, 66f);
+        float oldX = hero.x;
+        int oldFacing = hero.facing;
+        hero.x = 200f;
+        hero.facing = 1;
+        drawHero(canvas);
+        hero.x = oldX;
+        hero.facing = oldFacing;
         drawVignette(canvas);
     }
 
@@ -1496,19 +1631,27 @@ public final class GameView extends View {
             row = 1;
             column = 0;
         }
-        float bob = hero.dead ? 0f : (float) Math.sin(ambientClock * 3.2f) * 2.2f;
-        float width = 248f;
-        float height = 248f;
+        boolean moving = !hero.dead && hero.dashTimer <= 0f && Math.abs(hero.velocity) > 24f;
+        // The sprite sheet already contains the body's up/down gait. Keep the feet on one
+        // world-space baseline instead of floating the whole bitmap with a sine wave.
+        float bob = !moving && heroAction == ACTION_NONE && !hero.dead
+                ? (float) Math.sin(ambientClock * 2.5f) * 0.8f : 0f;
+        float width = 244f;
+        float height = 244f;
         RectF destination = new RectF(hero.x - width * 0.5f,
-                GROUND_Y - height + 21f + bob, hero.x + width * 0.5f, GROUND_Y + 21f + bob);
+                GROUND_Y - height + 8f + bob, hero.x + width * 0.5f, GROUND_Y + 8f + bob);
         int alpha = hero.invulnerability > 0f
                 && ((int) (hero.invulnerability * 32f) & 1) == 0 ? 142 : 255;
+        float lean = hero.dashTimer > 0f ? -hero.facing * 8f
+                : moving ? -hero.facing * 2.2f : 0f;
+        canvas.save();
+        canvas.rotate(lean, hero.x, GROUND_Y + 5f);
         if (hero.dashTimer > 0f) {
             for (int trail = 4; trail >= 1; trail--) {
                 RectF trailRect = new RectF(destination);
                 trailRect.offset(-hero.facing * trail * 31f, 0f);
                 drawAtlasCell(canvas, heroAtlas, 4, 4, column, row, trailRect,
-                        hero.facing < 0, 16 + trail * 12, 4);
+                    hero.facing > 0, 16 + trail * 12, 4);
             }
         }
         if (heroAction == ACTION_NOVA && heroActionTimer > 0f) {
@@ -1523,8 +1666,9 @@ public final class GameView extends View {
             drawFallbackFighter(canvas, destination, CRIMSON, alpha, hero.facing);
         } else {
             drawAtlasCell(canvas, heroAtlas, 4, 4, column, row, destination,
-                    hero.facing < 0, alpha, 4);
+                    hero.facing > 0, alpha, 4);
         }
+        canvas.restore();
     }
 
     private void drawEnemy(Canvas canvas, Enemy enemy) {
@@ -1742,27 +1886,32 @@ public final class GameView extends View {
         canvas.drawRect(0f, CONTROL_TOP, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
 
-        drawControlButton(canvas, 88f, 1110f, 64f, "◀", "이동", leftHeld,
-                0f, true, Color.rgb(57, 65, 86));
-        drawControlButton(canvas, 218f, 1110f, 64f, "▶", "이동", rightHeld,
-                0f, true, Color.rgb(57, 65, 86));
-        drawControlButton(canvas, 153f, 1212f, 47f, "✦", "대시 ∞", false,
-                0f, true, Color.rgb(103, 40, 70));
+        paint.setColor(Color.argb(205, 9, 15, 27));
+        canvas.drawRoundRect(new RectF(28f, 966f, 692f, 1034f), 22f, 22f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(175, 93, 218, 235));
+        canvas.drawRoundRect(new RectF(28f, 966f, 692f, 1034f), 22f, 22f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(20f);
+        textPaint.setColor(CYAN);
+        canvas.drawText("AUTO HUNT  ●  자동 전진 · 자동 기본 공격", 360f, 1009f, textPaint);
 
-        drawControlButton(canvas, 618f, 1084f, 72f, "A", "공격", false,
-                0f, true, CRIMSON);
-        drawControlButton(canvas, 505f, 1190f, 53f, "血", "혈창 20", false,
+        drawControlButton(canvas, 92f, 1130f, 57f, "✦", "개입 대시", false,
+                0f, true, Color.rgb(70, 83, 112));
+        drawControlButton(canvas, 292f, 1130f, 60f, "血", "혈창 20", false,
                 spearCooldown / 0.9f, true, Color.rgb(154, 24, 58));
-        drawControlButton(canvas, 400f, 1088f, 51f, "吸", "흡혈 30", false,
+        drawControlButton(canvas, 463f, 1130f, 60f, "吸", "흡혈 30", false,
                 siphonCooldown / 4.8f, progress.level >= 4, Color.rgb(38, 119, 144));
-        drawControlButton(canvas, 618f, 1222f, 47f, "月", "폭발 55", false,
+        drawControlButton(canvas, 630f, 1130f, 60f, "月", "폭발 55", false,
                 novaCooldown / 7.5f, progress.level >= 7, Color.rgb(115, 53, 149));
 
         if (comboDisplayTimer > 0f && comboIndex > 0) {
             textPaint.setTypeface(uiBoldTypeface);
             textPaint.setTextSize(18f);
             textPaint.setColor(GOLD);
-            canvas.drawText((comboIndex + 1) + " COMBO", 618f, 974f, textPaint);
+            canvas.drawText((comboIndex + 1) + " AUTO COMBO", 360f, 946f, textPaint);
         }
     }
 
@@ -1902,7 +2051,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(19f);
         textPaint.setColor(Color.rgb(209, 215, 228));
-        canvas.drawText("세로형 2D 뱀파이어 성장 액션 RPG", 360f, 474f, textPaint);
+        canvas.drawText("세로형 방치 전투 · 횡스크롤 성장 RPG", 360f, 474f, textPaint);
 
         paint.setColor(Color.argb(175, 7, 9, 18));
         canvas.drawRoundRect(new RectF(96f, 526f, 624f, 685f), 24f, 24f, paint);
@@ -1914,12 +2063,12 @@ public final class GameView extends View {
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(21f);
         textPaint.setColor(GOLD);
-        canvas.drawText("사냥  ·  성장  ·  장비  ·  지역 해금", 360f, 572f, textPaint);
+        canvas.drawText("자동 사냥  ·  성장  ·  장비  ·  스토리", 360f, 572f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(17f);
         textPaint.setColor(Color.rgb(194, 200, 214));
-        canvas.drawText("몬스터 무리를 사냥하고 영구 능력과 장비를 키우세요", 360f, 614f, textPaint);
-        canvas.drawText("장애물 없는 전장 · 무제한 대시 · 3개 지역 보스", 360f, 649f, textPaint);
+        canvas.drawText("카엘은 스스로 전진하고 싸웁니다", 360f, 614f, textPaint);
+        canvas.drawText("당신은 혈술과 성장으로 운명에 개입하세요", 360f, 649f, textPaint);
 
         if (continueAvailable) {
             drawMenuButton(canvas, continueButton,
@@ -1932,7 +2081,76 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v3.0.1  ·  진행도 자동 저장", 360f, 1120f, textPaint);
+        canvas.drawText("v4.0.0 DEMO  ·  진행도 자동 저장", 360f, 1120f, textPaint);
+    }
+
+    private void drawStory(Canvas canvas) {
+        paint.setColor(Color.argb(205, 4, 6, 14));
+        canvas.drawRoundRect(new RectF(34f, 58f, 686f, 176f), 24f, 24f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(155, 105, 221, 240));
+        canvas.drawRoundRect(new RectF(34f, 58f, 686f, 176f), 24f, 24f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(18f);
+        textPaint.setColor(CYAN);
+        canvas.drawText(STORY_CHAPTERS[storyChapter], 360f, 103f, textPaint);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(32f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText("카엘 아르덴의 기억", 360f, 148f, textPaint);
+
+        paint.setColor(Color.argb(239, 5, 7, 16));
+        canvas.drawRoundRect(new RectF(34f, 828f, 686f, 1186f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(Color.argb(175, 197, 31, 70));
+        canvas.drawRoundRect(new RectF(34f, 828f, 686f, 1186f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(24f);
+        textPaint.setColor(storyFinale ? GOLD : CRIMSON);
+        canvas.drawText(STORY_SPEAKERS[storyChapter][storyLine], 76f, 892f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(25f);
+        textPaint.setColor(Color.rgb(231, 234, 242));
+        drawWrappedText(canvas, STORY_LINES[storyChapter][storyLine],
+                76f, 950f, 568f, 43f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.rgb(151, 189, 203));
+        canvas.drawText("화면을 눌러 계속  ·  " + (storyLine + 1) + " / "
+                + STORY_LINES[storyChapter].length, 360f, 1148f, textPaint);
+    }
+
+    private void drawWrappedText(Canvas canvas, String text, float left, float top,
+                                 float width, float lineHeight) {
+        int start = 0;
+        float y = top;
+        while (start < text.length() && y < 1115f) {
+            int count = textPaint.breakText(text, start, text.length(), true, width, null);
+            if (count <= 0) {
+                break;
+            }
+            int end = Math.min(text.length(), start + count);
+            if (end < text.length()) {
+                int space = text.lastIndexOf(' ', end - 1);
+                if (space > start) {
+                    end = space;
+                }
+            }
+            canvas.drawText(text.substring(start, end).trim(), left, y, textPaint);
+            start = end;
+            while (start < text.length() && text.charAt(start) == ' ') {
+                start++;
+            }
+            y += lineHeight;
+        }
     }
 
     private void drawPause(Canvas canvas) {
@@ -2280,21 +2498,13 @@ public final class GameView extends View {
             resetPointers();
             return;
         }
-        if (insideCircle(x, y, 88f, 1110f, 70f) && leftPointer < 0) {
-            leftPointer = pointerId;
-            leftHeld = true;
-        } else if (insideCircle(x, y, 218f, 1110f, 70f) && rightPointer < 0) {
-            rightPointer = pointerId;
-            rightHeld = true;
-        } else if (insideCircle(x, y, 153f, 1212f, 56f)) {
+        if (insideCircle(x, y, 92f, 1130f, 68f)) {
             dashPressed = true;
-        } else if (insideCircle(x, y, 618f, 1084f, 82f)) {
-            attackPressed = true;
-        } else if (insideCircle(x, y, 505f, 1190f, 62f)) {
+        } else if (insideCircle(x, y, 292f, 1130f, 70f)) {
             spearPressed = true;
-        } else if (insideCircle(x, y, 400f, 1088f, 61f)) {
+        } else if (insideCircle(x, y, 463f, 1130f, 70f)) {
             siphonPressed = true;
-        } else if (insideCircle(x, y, 618f, 1222f, 56f)) {
+        } else if (insideCircle(x, y, 630f, 1130f, 70f)) {
             novaPressed = true;
         }
     }
@@ -2309,7 +2519,9 @@ public final class GameView extends View {
             rightHeld = false;
         }
 
-        if (screen == Screen.TITLE) {
+        if (screen == Screen.STORY) {
+            advanceStory();
+        } else if (screen == Screen.TITLE) {
             if (continueButton.contains(x, y)) {
                 if (continueAvailable) {
                     continueAdventure();
@@ -2396,6 +2608,10 @@ public final class GameView extends View {
             return true;
         }
         if (screen == Screen.NEW_CONFIRM) {
+            screen = Screen.TITLE;
+            return true;
+        }
+        if (screen == Screen.STORY) {
             screen = Screen.TITLE;
             return true;
         }
@@ -2512,6 +2728,7 @@ public final class GameView extends View {
         float runDistance;
         float deadTimer;
         int facing;
+        int lastFootstep;
         boolean dead;
 
         void reset(float startX, int startFacing) {
@@ -2523,6 +2740,7 @@ public final class GameView extends View {
             runDistance = 0f;
             deadTimer = 0f;
             facing = startFacing;
+            lastFootstep = 0;
             dead = false;
         }
     }
