@@ -161,6 +161,7 @@ public final class GameView extends View {
     private Bitmap heroAtlas;
     private Bitmap enemyAtlas;
     private Bitmap bossAtlas;
+    private Bitmap bloodArtsAtlas;
     private Bitmap currentBackground;
     private int currentBackgroundRegion = -1;
     private boolean combatAtlasLoadAttempted;
@@ -348,6 +349,7 @@ public final class GameView extends View {
         combatAtlasLoadAttempted = true;
         heroAtlas = decodeBitmap(R.drawable.hero_side_atlas_v5, false);
         enemyAtlas = decodeBitmap(R.drawable.enemy_side_atlas, false);
+        bloodArtsAtlas = decodeBitmap(R.drawable.vfx_blood_arts_atlas_v1, false);
     }
 
     private void ensureBossAtlas() {
@@ -2794,6 +2796,11 @@ public final class GameView extends View {
                 paint.setShader(null);
             } else if (!projectile.enemyOwned && projectile.kind == 0) {
                 float direction = Math.signum(projectile.velocityX);
+                if (bloodArtsAtlas != null && !bloodArtsAtlas.isRecycled()) {
+                    drawBloodArtAtlasCell(canvas, 0, x, projectile.y,
+                            210f, 132f, direction < 0f, 245, -8f * direction);
+                    continue;
+                }
                 float pulse = 0.82f + 0.18f
                         * (float) Math.sin((projectile.maxLife - projectile.life) * 42f);
                 paint.setShader(new RadialGradient(x, projectile.y,
@@ -2854,6 +2861,9 @@ public final class GameView extends View {
         for (SkillEffect effect : skillEffects) {
             float progress = RpgRules.clamp(1f - effect.life / effect.maxLife, 0f, 1f);
             float fade = 1f - smootherStep(RpgRules.clamp((progress - 0.52f) / 0.48f, 0f, 1f));
+            if (drawBloodArtEffect(canvas, effect, foreground, progress, fade)) {
+                continue;
+            }
             if (effect.kind == FX_NOVA) {
                 float expansion = easeOutCubic(progress);
                 float radius = effect.radius * expansion;
@@ -3159,6 +3169,114 @@ public final class GameView extends View {
                 paint.setStyle(Paint.Style.FILL);
             }
         }
+    }
+
+    private boolean drawBloodArtEffect(Canvas canvas, SkillEffect effect,
+                                       boolean foreground, float progress, float fade) {
+        if (bloodArtsAtlas == null || bloodArtsAtlas.isRecycled()) {
+            return false;
+        }
+        int atlasIndex;
+        float centerX = effect.x;
+        float centerY = effect.y;
+        float width;
+        float height;
+        float rotation = 0f;
+        boolean flip = effect.direction < 0f;
+        if (effect.kind == FX_SPEAR_IMPACT) {
+            atlasIndex = 0;
+            width = 270f;
+            height = 196f;
+            rotation = -9f * effect.direction;
+        } else if (effect.kind == FX_TETHER) {
+            atlasIndex = 1;
+            centerX = (effect.x + effect.targetX) * 0.5f;
+            centerY = (effect.y + effect.targetY) * 0.5f - 12f;
+            width = Math.max(250f, Math.abs(effect.targetX - effect.x) + 210f);
+            height = 238f;
+            flip = effect.targetX < effect.x;
+        } else if (effect.kind == FX_NOVA) {
+            atlasIndex = 2;
+            width = Math.max(350f, effect.radius * 1.95f);
+            height = width;
+        } else if (effect.kind == FX_RUSH) {
+            atlasIndex = 3;
+            centerX = (effect.x + effect.targetX) * 0.5f;
+            centerY = (effect.y + effect.targetY) * 0.5f;
+            width = Math.max(330f, Math.abs(effect.targetX - effect.x) + 250f);
+            height = 260f;
+            flip = effect.targetX < effect.x;
+        } else if (effect.kind == FX_RAIN) {
+            atlasIndex = 4;
+            centerY = effect.y - 108f;
+            width = 330f;
+            height = 410f;
+        } else if (effect.kind == FX_CHAIN) {
+            atlasIndex = 5;
+            centerX = (effect.x + effect.targetX) * 0.5f;
+            centerY = (effect.y + effect.targetY) * 0.5f - 18f;
+            width = Math.max(280f, Math.abs(effect.targetX - effect.x) + 230f);
+            height = 245f;
+            flip = effect.targetX < effect.x;
+        } else if (effect.kind == FX_PILLAR) {
+            atlasIndex = 6;
+            centerY = GROUND_Y - 220f;
+            width = 330f;
+            height = 470f;
+        } else if (effect.kind == FX_ECLIPSE) {
+            atlasIndex = 7;
+            width = 680f;
+            height = 650f;
+        } else {
+            return false;
+        }
+
+        float appear = easeOutCubic(RpgRules.clamp(progress / 0.24f, 0f, 1f));
+        float pulse = 1f + (float) Math.sin(progress * Math.PI) * 0.09f;
+        float animatedScale = (0.56f + appear * 0.44f) * pulse;
+        if (effect.kind == FX_RUSH || effect.kind == FX_SPEAR_IMPACT) {
+            animatedScale = 0.78f + appear * 0.3f;
+        } else if (effect.kind == FX_PILLAR || effect.kind == FX_RAIN) {
+            animatedScale = 0.48f + appear * 0.58f;
+        }
+        if (!foreground) {
+            drawBloodArtAtlasCell(canvas, atlasIndex, centerX, centerY,
+                    width * animatedScale * 1.12f, height * animatedScale * 1.12f,
+                    flip, Math.round(72f * fade), rotation);
+        } else {
+            drawBloodArtAtlasCell(canvas, atlasIndex, centerX, centerY,
+                    width * animatedScale, height * animatedScale,
+                    flip, Math.round(250f * fade), rotation);
+        }
+        return true;
+    }
+
+    private void drawBloodArtAtlasCell(Canvas canvas, int index, float centerX, float centerY,
+                                       float width, float height, boolean flip,
+                                       int alpha, float rotation) {
+        if (bloodArtsAtlas == null || bloodArtsAtlas.isRecycled()) {
+            return;
+        }
+        int safeIndex = RpgRules.clamp(index, 0, 7);
+        int column = safeIndex % 4;
+        int row = safeIndex / 4;
+        int cellWidth = bloodArtsAtlas.getWidth() / 4;
+        int cellHeight = bloodArtsAtlas.getHeight() / 2;
+        int left = column * cellWidth;
+        int top = row * cellHeight;
+        int right = column == 3 ? bloodArtsAtlas.getWidth() : left + cellWidth;
+        int bottom = row == 1 ? bloodArtsAtlas.getHeight() : top + cellHeight;
+        atlasSource.set(left, top, right, bottom);
+        spriteDestination.set(-width * 0.5f, -height * 0.5f,
+                width * 0.5f, height * 0.5f);
+        canvas.save();
+        canvas.translate(centerX, centerY);
+        canvas.rotate(rotation);
+        canvas.scale(flip ? -1f : 1f, 1f);
+        paint.setAlpha(RpgRules.clamp(alpha, 0, 255));
+        canvas.drawBitmap(bloodArtsAtlas, atlasSource, spriteDestination, paint);
+        paint.setAlpha(255);
+        canvas.restore();
     }
 
     private void drawParticles(Canvas canvas) {
@@ -3606,7 +3724,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.10.0 DEMO  ·  MONSTER RUSH", 360f, 1120f, textPaint);
+        canvas.drawText("v4.11.0 DEMO  ·  PAINTED VFX", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {
@@ -4429,6 +4547,16 @@ public final class GameView extends View {
     @Override
     protected void onDetachedFromWindow() {
         audio.release();
+        recycleBitmap(heroAtlas);
+        recycleBitmap(enemyAtlas);
+        recycleBitmap(bossAtlas);
+        recycleBitmap(bloodArtsAtlas);
+        recycleBitmap(currentBackground);
+        heroAtlas = null;
+        enemyAtlas = null;
+        bossAtlas = null;
+        bloodArtsAtlas = null;
+        currentBackground = null;
         super.onDetachedFromWindow();
     }
 
