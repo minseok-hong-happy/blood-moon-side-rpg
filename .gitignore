@@ -6,3 +6,4 @@ local.properties
 dist/*.apk
 dist/SHA256SUMS.txt
 dist/mapping-*.txt
+tmp/

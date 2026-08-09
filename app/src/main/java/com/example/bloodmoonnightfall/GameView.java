@@ -35,6 +35,7 @@ public final class GameView extends View {
     private static final float FIXED_STEP = 1f / 60f;
     private static final int MAX_ACTIVE_ENEMIES = 12;
     private static final int MAX_PARTICLES = 420;
+    private static final int MAX_IMPACT_EFFECTS = 24;
 
     private static final int CRIMSON = Color.rgb(214, 31, 70);
     private static final int BLOOD = Color.rgb(142, 13, 44);
@@ -52,6 +53,8 @@ public final class GameView extends View {
             }));
     private static final LightingColorFilter ACTOR_LIFT_FILTER =
             new LightingColorFilter(Color.WHITE, Color.rgb(16, 16, 20));
+    private static final LightingColorFilter ACTOR_HIT_FLASH_FILTER =
+            new LightingColorFilter(Color.BLACK, Color.rgb(255, 244, 232));
 
     private static final int ACTION_NONE = 0;
     private static final int ACTION_ATTACK = 1;
@@ -169,6 +172,7 @@ public final class GameView extends View {
     private Bitmap bloodArtsAtlas;
     private Bitmap bloodArtsAnimationAtlasA;
     private Bitmap bloodArtsAnimationAtlasB;
+    private Bitmap impactAnimationAtlas;
     private Bitmap currentBackground;
     private int currentBackgroundRegion = -1;
     private boolean combatAtlasLoadAttempted;
@@ -185,6 +189,7 @@ public final class GameView extends View {
     private final List<Particle> particles = new ArrayList<>();
     private final List<FloatingText> floatingTexts = new ArrayList<>();
     private final List<SkillEffect> skillEffects = new ArrayList<>();
+    private final List<ImpactEffect> impactEffects = new ArrayList<>();
 
     private Screen screen = Screen.TITLE;
     private Screen growthReturnScreen = Screen.PLAYING;
@@ -209,6 +214,17 @@ public final class GameView extends View {
     private float cameraZoomPulse;
     private float skillBloom;
     private boolean impactHeavy;
+    private int hitCombo;
+    private float hitComboTimer;
+    private float hitComboPulse;
+    private float bossIntroTimer;
+    private float bossIntroDuration;
+    private String bossIntroName = "";
+    private int bossIntroColor = CRIMSON;
+    private float skillCalloutTimer;
+    private float skillCalloutDuration;
+    private String skillCalloutText = "";
+    private int skillCalloutColor = CRIMSON;
     private float toastTimer;
     private String toastText = "";
 
@@ -360,6 +376,7 @@ public final class GameView extends View {
         enemyAtlas = decodeBitmap(R.drawable.enemy_side_atlas, false);
         bloodArtsAnimationAtlasA = decodeBitmap(R.drawable.vfx_blood_arts_anim_a_v2, false);
         bloodArtsAnimationAtlasB = decodeBitmap(R.drawable.vfx_blood_arts_anim_b_v2, false);
+        impactAnimationAtlas = decodeBitmap(R.drawable.vfx_combat_impact_anim_v1, false);
         if (bloodArtsAnimationAtlasA == null || bloodArtsAnimationAtlasB == null) {
             bloodArtsAtlas = decodeBitmap(R.drawable.vfx_blood_arts_atlas_v1, false);
         }
@@ -405,6 +422,44 @@ public final class GameView extends View {
         int safeVariant = RpgRules.clamp(variant, 0, 2);
         return safeVariant == 1 ? CYAN : safeVariant == 2
                 ? Color.rgb(241, 54, 105) : GOLD;
+    }
+
+    private static String combatSkillName(int action) {
+        if (action == ACTION_NOVA) {
+            return "혈월 폭발";
+        }
+        if (action == ACTION_RUSH) {
+            return "혈영쇄도";
+        }
+        if (action == ACTION_RAIN) {
+            return "적월검우";
+        }
+        if (action == ACTION_CHAIN) {
+            return "혈사슬";
+        }
+        if (action == ACTION_PILLAR) {
+            return "진홍기둥";
+        }
+        if (action == ACTION_ECLIPSE) {
+            return "개기월식";
+        }
+        return "";
+    }
+
+    private static int combatSkillColor(int action) {
+        if (action == ACTION_CHAIN) {
+            return CYAN;
+        }
+        if (action == ACTION_RAIN) {
+            return GOLD;
+        }
+        if (action == ACTION_ECLIPSE) {
+            return VIOLET;
+        }
+        if (action == ACTION_PILLAR) {
+            return Color.rgb(255, 88, 75);
+        }
+        return CRIMSON;
     }
 
     private Bitmap obtainBackground(int region) {
@@ -471,9 +526,12 @@ public final class GameView extends View {
         cameraKickY = approach(cameraKickY, 0f, 180f * dt);
         cameraZoomPulse = approach(cameraZoomPulse, 0f, 2.4f * dt);
         skillBloom = Math.max(0f, skillBloom - dt * 2.8f);
+        bossIntroTimer = Math.max(0f, bossIntroTimer - dt);
+        skillCalloutTimer = Math.max(0f, skillCalloutTimer - dt);
         toastTimer = Math.max(0f, toastTimer - dt);
         updateParticles(dt * 0.35f);
         updateSkillEffects(dt * 0.35f);
+        updateImpactEffects(dt * 0.35f);
         updateFloatingTexts(dt);
     }
 
@@ -493,6 +551,15 @@ public final class GameView extends View {
         cameraKickY = approach(cameraKickY, 0f, 230f * dt);
         cameraZoomPulse = approach(cameraZoomPulse, 0f, 2.9f * dt);
         skillBloom = Math.max(0f, skillBloom - dt * 3.1f);
+        bossIntroTimer = Math.max(0f, bossIntroTimer - dt);
+        skillCalloutTimer = Math.max(0f, skillCalloutTimer - dt);
+        hitComboPulse = Math.max(0f, hitComboPulse - dt * 4.8f);
+        if (hitComboTimer > 0f) {
+            hitComboTimer = Math.max(0f, hitComboTimer - dt);
+            if (hitComboTimer <= 0f) {
+                hitCombo = 0;
+            }
+        }
         comboGrace = Math.max(0f, comboGrace - dt);
         comboDisplayTimer = Math.max(0f, comboDisplayTimer - dt);
         if (huntChainTimer > 0f) {
@@ -526,6 +593,7 @@ public final class GameView extends View {
             hitStop = Math.max(0f, hitStop - dt);
             updateParticles(dt * 0.2f);
             updateSkillEffects(dt * 0.2f);
+            updateImpactEffects(dt * 0.32f);
             return;
         }
 
@@ -538,6 +606,7 @@ public final class GameView extends View {
         updateProjectiles(dt);
         updateParticles(dt);
         updateSkillEffects(dt);
+        updateImpactEffects(dt);
         updateFloatingTexts(dt);
 
         if (!hero.dead && !waveComplete) {
@@ -881,6 +950,13 @@ public final class GameView extends View {
         heroActionTrigger = trigger;
         heroActionTriggered = false;
         comboQueued = false;
+        String callout = combatSkillName(action);
+        if (!callout.isEmpty()) {
+            skillCalloutText = callout;
+            skillCalloutColor = combatSkillColor(action);
+            skillCalloutDuration = action == ACTION_ECLIPSE ? 1.05f : 0.72f;
+            skillCalloutTimer = skillCalloutDuration;
+        }
     }
 
     private void updateHero(float dt) {
@@ -1220,6 +1296,16 @@ public final class GameView extends View {
         if (kind == RpgRules.ENEMY_BOSS) {
             screenShake = 10f;
             showToast("지역 보스 · " + bossName(enemy.bossVariant), 2.4f);
+            bossIntroName = bossName(enemy.bossVariant);
+            bossIntroColor = bossAccentColor(enemy.bossVariant);
+            bossIntroDuration = 1.75f;
+            bossIntroTimer = bossIntroDuration;
+            waveBannerTimer = 0f;
+            hitStop = Math.max(hitStop, 0.10f);
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.035f);
+            skillBloom = Math.max(skillBloom, 0.72f);
+            addImpactEffect(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y),
+                    enemy.facing, ImpactAnimationRules.STYLE_FINISHER);
         } else if (enemy.elite) {
             screenShake = Math.max(screenShake, 4f);
             showToast("정예 출현 · " + ENEMY_NAMES[kind], 2f);
@@ -1495,6 +1581,9 @@ public final class GameView extends View {
             effect.x -= shift;
             effect.targetX -= shift;
         }
+        for (ImpactEffect effect : impactEffects) {
+            effect.x -= shift;
+        }
         if (impactX > 0f) {
             impactX -= shift;
         }
@@ -1562,6 +1651,9 @@ public final class GameView extends View {
         int applied = Math.max(1, amount);
         enemy.health = Math.max(0f, enemy.health - applied);
         boolean killed = enemy.health <= 0f;
+        hitCombo = hitComboTimer > 0f ? hitCombo + 1 : 1;
+        hitComboTimer = 1.35f;
+        hitComboPulse = 1f;
         if (!killed && enemy.kind == RpgRules.ENEMY_BOSS && !enemy.phaseTriggered
                 && enemy.health <= enemy.maxHealth * 0.55f) {
             enemy.phaseTriggered = true;
@@ -1570,6 +1662,9 @@ public final class GameView extends View {
             addNovaBurst(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y), 190f);
             addBurst(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y),
                     bossAccentColor(enemy.bossVariant), 42, 310f);
+            addImpactEffect(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y),
+                    enemy.x >= hero.x ? 1f : -1f,
+                    ImpactAnimationRules.STYLE_FINISHER);
             skillBloom = Math.max(skillBloom, 0.82f);
             screenShake = Math.max(screenShake, 5f);
             showToast(bossName(enemy.bossVariant) + " · 2페이즈", 2.2f);
@@ -1584,8 +1679,10 @@ public final class GameView extends View {
         }
         float damageTextY = enemy.kind == RpgRules.ENEMY_BOSS
                 ? BossPresentationMetrics.healthBarY(GROUND_Y) - 18f : GROUND_Y - 210f;
+        int damageStyle = killed ? 3 : heavy ? 2 : 1;
         floatingTexts.add(new FloatingText(enemy.x, damageTextY,
-                "-" + applied, heavy ? GOLD : Color.WHITE, 0.9f));
+                formatNumber(applied), killed ? Color.WHITE : heavy ? GOLD : Color.WHITE,
+                killed ? 1.08f : 0.9f, damageStyle));
         float impactY = enemy.kind == RpgRules.ENEMY_BOSS
                 ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 104f;
         addBurst(enemy.x, impactY, CRIMSON, heavy ? 18 : 10, heavy ? 230f : 155f);
@@ -1637,6 +1734,9 @@ public final class GameView extends View {
         screenShake = Math.max(screenShake, killed ? 16f : heavy ? 11f : 5.5f);
         hitStop = Math.max(hitStop, killed ? 0.072f : heavy ? 0.048f : 0.022f);
         addImpactBurst(x, y, direction, major ? 22 : 12, major ? 320f : 210f);
+        addImpactEffect(x, y, direction, killed ? ImpactAnimationRules.STYLE_FINISHER
+                : heavy ? ImpactAnimationRules.STYLE_HEAVY
+                : ImpactAnimationRules.STYLE_NORMAL);
         audio.playHit(heavy, killed, comboIndex);
         performHapticFeedback(major
                 ? HapticFeedbackConstants.LONG_PRESS : HapticFeedbackConstants.VIRTUAL_KEY);
@@ -1653,6 +1753,7 @@ public final class GameView extends View {
         screenShake = Math.max(screenShake, 13f);
         hitStop = Math.max(hitStop, 0.06f);
         addImpactBurst(x, y, direction, 20, 280f);
+        addImpactEffect(x, y, direction, ImpactAnimationRules.STYLE_HEAVY);
         audio.playPlayerHurt();
     }
 
@@ -1921,12 +2022,18 @@ public final class GameView extends View {
         projectiles.clear();
         particles.clear();
         skillEffects.clear();
+        impactEffects.clear();
         floatingTexts.clear();
         remainingToSpawn = RpgRules.waveEnemyCount(progress.region, progress.wave);
         waveTarget = remainingToSpawn;
         defeatedThisWave = 0;
         huntChain = 0;
         huntChainTimer = 0f;
+        hitCombo = 0;
+        hitComboTimer = 0f;
+        hitComboPulse = 0f;
+        bossIntroTimer = 0f;
+        skillCalloutTimer = 0f;
         spawnSerial = 0;
         nextEnemyId = 1;
         spawnTimer = 0.18f;
@@ -2116,12 +2223,40 @@ public final class GameView extends View {
         }
     }
 
+    private void updateImpactEffects(float dt) {
+        Iterator<ImpactEffect> iterator = impactEffects.iterator();
+        while (iterator.hasNext()) {
+            ImpactEffect effect = iterator.next();
+            effect.life -= dt;
+            if (effect.life <= 0f) {
+                iterator.remove();
+            }
+        }
+    }
+
+    private void addImpactEffect(float x, float y, float direction, int style) {
+        if (impactEffects.size() >= MAX_IMPACT_EFFECTS) {
+            impactEffects.remove(0);
+        }
+        ImpactEffect effect = new ImpactEffect();
+        effect.x = x + Math.signum(direction) * 7f;
+        effect.y = y;
+        effect.direction = direction < 0f ? -1f : 1f;
+        effect.style = RpgRules.clamp(style,
+                ImpactAnimationRules.STYLE_NORMAL, ImpactAnimationRules.STYLE_FINISHER);
+        effect.life = ImpactAnimationRules.duration(effect.style);
+        effect.maxLife = effect.life;
+        float rotationRange = effect.style == ImpactAnimationRules.STYLE_FINISHER ? 4f : 10f;
+        effect.rotation = (random.nextFloat() - 0.5f) * rotationRange;
+        impactEffects.add(effect);
+    }
+
     private void updateFloatingTexts(float dt) {
         Iterator<FloatingText> iterator = floatingTexts.iterator();
         while (iterator.hasNext()) {
             FloatingText floatingText = iterator.next();
             floatingText.life -= dt;
-            floatingText.y -= dt * 42f;
+            floatingText.y -= dt * (42f + floatingText.emphasis * 8f);
             if (floatingText.life <= 0f) {
                 iterator.remove();
             }
@@ -2305,6 +2440,11 @@ public final class GameView extends View {
                 drawControls(canvas);
             }
             drawBanners(canvas);
+            if (screen == Screen.PLAYING) {
+                drawHitCounter(canvas);
+                drawSkillCallout(canvas);
+                drawBossIntro(canvas);
+            }
             drawToast(canvas);
             if (screen == Screen.PAUSED) {
                 drawPause(canvas);
@@ -2461,6 +2601,7 @@ public final class GameView extends View {
         drawGroundGlow(canvas);
         drawCombatSpeedLines(canvas);
         drawSkillEffects(canvas, false);
+        drawImpactEffects(canvas, false);
         for (Enemy enemy : enemies) {
             drawEnemyTelegraph(canvas, enemy);
         }
@@ -2488,6 +2629,7 @@ public final class GameView extends View {
         drawHero(canvas);
         drawProjectiles(canvas);
         drawSkillEffects(canvas, true);
+        drawImpactEffects(canvas, true);
         drawParticles(canvas);
         drawFloatingTexts(canvas);
         drawVignette(canvas);
@@ -2706,15 +2848,17 @@ public final class GameView extends View {
                 drawAtlasBlend(canvas, heroAtlas, 4, 4,
                         firstColumn, firstRow, secondColumn, secondRow, blend,
                         trailDestination, hero.facing > 0,
-                        Math.min(92, 12 + trail * 11), 4);
+                        Math.min(92, 12 + trail * 11), 4, false);
             }
         }
         if (heroAtlas == null || heroAtlas.isRecycled()) {
-            drawFallbackFighter(canvas, spriteDestination, CRIMSON, alpha, hero.facing);
+            drawFallbackFighter(canvas, spriteDestination,
+                    hero.hurtTimer > 0.08f ? Color.WHITE : CRIMSON, alpha, hero.facing);
         } else {
             drawAtlasBlend(canvas, heroAtlas, 4, 4,
                     firstColumn, firstRow, secondColumn, secondRow, blend,
-                    spriteDestination, hero.facing > 0, alpha, 4);
+                    spriteDestination, hero.facing > 0, alpha, 4,
+                    hero.hurtTimer > 0.08f);
         }
         canvas.restore();
     }
@@ -2803,9 +2947,8 @@ public final class GameView extends View {
                 : enemy.spawnTimer > 0f
                 ? Math.round(255f * (1f - enemy.spawnTimer
                 / (enemy.kind == RpgRules.ENEMY_BOSS ? 1.1f : 0.58f))) : 255;
-        if (enemy.hurtTimer > 0f && ((int) (enemy.hurtTimer * 46f) & 1) == 0) {
-            alpha = Math.min(alpha, 125);
-        }
+        boolean hitFlash = !enemy.dead && enemy.hurtTimer > 0.07f
+                && ((int) (enemy.hurtTimer * 46f) & 1) == 0;
         if (enemy.elite && !enemy.dead && enemy.spawnTimer <= 0f) {
             float pulse = 0.5f + 0.5f * (float) Math.sin(enemy.animClock * 5.2f);
             paint.setStyle(Paint.Style.STROKE);
@@ -2860,11 +3003,12 @@ public final class GameView extends View {
             }
             if (activeBossAtlas == null || activeBossAtlas.isRecycled()) {
                 drawFallbackFighter(canvas, spriteDestination,
-                        bossAccentColor(enemy.bossVariant), alpha, enemy.facing);
+                        hitFlash ? Color.WHITE : bossAccentColor(enemy.bossVariant),
+                        alpha, enemy.facing);
             } else {
                 drawAtlasBlend(canvas, activeBossAtlas, 4, 3,
                         firstColumn, row, secondColumn, row, blend,
-                        spriteDestination, enemy.facing > 0, alpha, 3);
+                        spriteDestination, enemy.facing > 0, alpha, 3, hitFlash);
             }
             canvas.restore();
         } else {
@@ -2899,12 +3043,13 @@ public final class GameView extends View {
             }
             if (enemyAtlas == null || enemyAtlas.isRecycled()) {
                 drawFallbackFighter(canvas, spriteDestination,
-                        enemy.kind == RpgRules.ENEMY_WRAITH ? CYAN : VIOLET,
+                        hitFlash ? Color.WHITE
+                                : enemy.kind == RpgRules.ENEMY_WRAITH ? CYAN : VIOLET,
                         alpha, enemy.facing);
             } else {
                 drawAtlasBlend(canvas, enemyAtlas, 4, 3,
                         firstColumn, row, secondColumn, row, blend,
-                        spriteDestination, enemy.facing > 0, alpha, 3);
+                        spriteDestination, enemy.facing > 0, alpha, 3, hitFlash);
             }
             canvas.restore();
         }
@@ -3348,6 +3493,95 @@ public final class GameView extends View {
         }
     }
 
+    private void drawImpactEffects(Canvas canvas, boolean foreground) {
+        for (ImpactEffect effect : impactEffects) {
+            float progress = RpgRules.clamp(1f - effect.life / effect.maxLife, 0f, 1f);
+            float fade = ImpactAnimationRules.alpha(progress);
+            float size = ImpactAnimationRules.size(effect.style)
+                    * ImpactAnimationRules.visualScale(progress);
+            int alpha = Math.round(255f * fade);
+            int accent = effect.style == ImpactAnimationRules.STYLE_FINISHER ? GOLD : CRIMSON;
+            if (!foreground) {
+                float glowRadius = size * (0.42f + progress * 0.20f);
+                paint.setShader(new RadialGradient(effect.x, effect.y,
+                        Math.max(1f, glowRadius),
+                        new int[]{withAlpha(Color.WHITE, Math.round(92f * fade)),
+                                withAlpha(accent, Math.round(72f * fade)),
+                                Color.TRANSPARENT},
+                        new float[]{0f, 0.24f, 1f}, Shader.TileMode.CLAMP));
+                canvas.drawCircle(effect.x, effect.y, Math.max(1f, glowRadius), paint);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(effect.style == ImpactAnimationRules.STYLE_NORMAL ? 3f : 6f);
+                paint.setColor(withAlpha(accent, Math.round(120f * fade)));
+                effectBounds.set(effect.x - size * 0.46f, effect.y - size * 0.24f,
+                        effect.x + size * 0.46f, effect.y + size * 0.24f);
+                canvas.drawOval(effectBounds, paint);
+                paint.setStyle(Paint.Style.FILL);
+                continue;
+            }
+
+            if (impactAnimationAtlas == null || impactAnimationAtlas.isRecycled()) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setStrokeWidth(effect.style == ImpactAnimationRules.STYLE_NORMAL ? 4f : 8f);
+                paint.setColor(withAlpha(Color.WHITE, alpha));
+                for (int ray = -3; ray <= 3; ray++) {
+                    float angle = ray * 0.22f;
+                    float dx = effect.direction * (float) Math.cos(angle) * size * 0.5f;
+                    float dy = (float) Math.sin(angle) * size * 0.38f;
+                    canvas.drawLine(effect.x + dx * 0.12f, effect.y + dy * 0.12f,
+                            effect.x + dx, effect.y + dy, paint);
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+                continue;
+            }
+
+            int firstFrame = ImpactAnimationRules.firstFrame(progress);
+            int secondFrame = ImpactAnimationRules.secondFrame(progress);
+            float blend = ImpactAnimationRules.frameBlend(progress);
+            drawImpactAnimationCell(canvas, effect.style, firstFrame,
+                    effect.x, effect.y, size, effect.direction < 0f,
+                    Math.round(alpha * (1f - blend)), effect.rotation * effect.direction);
+            if (secondFrame != firstFrame && blend > 0f) {
+                drawImpactAnimationCell(canvas, effect.style, secondFrame,
+                        effect.x, effect.y, size, effect.direction < 0f,
+                        Math.round(alpha * blend), effect.rotation * effect.direction);
+            }
+        }
+    }
+
+    private void drawImpactAnimationCell(Canvas canvas, int row, int frame,
+                                         float centerX, float centerY, float size,
+                                         boolean flip, int alpha, float rotation) {
+        if (impactAnimationAtlas == null || impactAnimationAtlas.isRecycled() || alpha <= 0) {
+            return;
+        }
+        int safeRow = RpgRules.clamp(row, 0, 2);
+        int safeFrame = RpgRules.clamp(frame, 0, ImpactAnimationRules.FRAME_COUNT - 1);
+        int cellWidth = impactAnimationAtlas.getWidth() / ImpactAnimationRules.FRAME_COUNT;
+        int cellHeight = impactAnimationAtlas.getHeight() / 3;
+        int inset = 3;
+        int left = safeFrame * cellWidth + inset;
+        int top = safeRow * cellHeight + inset;
+        int right = safeFrame == ImpactAnimationRules.FRAME_COUNT - 1
+                ? impactAnimationAtlas.getWidth() - inset : left + cellWidth - inset * 2;
+        int bottom = safeRow == 2
+                ? impactAnimationAtlas.getHeight() - inset : top + cellHeight - inset * 2;
+        atlasSource.set(left, top, right, bottom);
+        spriteDestination.set(-size * 0.5f, -size * 0.5f, size * 0.5f, size * 0.5f);
+        canvas.save();
+        canvas.translate(centerX, centerY);
+        canvas.rotate(rotation);
+        canvas.scale(flip ? -1f : 1f, 1f);
+        paint.setAlpha(RpgRules.clamp(alpha, 0, 255));
+        paint.setColorFilter(null);
+        canvas.drawBitmap(impactAnimationAtlas, atlasSource, spriteDestination, paint);
+        paint.setAlpha(255);
+        canvas.restore();
+    }
+
     private boolean drawBloodArtEffect(Canvas canvas, SkillEffect effect,
                                        boolean foreground, float progress, float fade) {
         boolean staticAtlasAvailable = bloodArtsAtlas != null && !bloodArtsAtlas.isRecycled();
@@ -3565,12 +3799,136 @@ public final class GameView extends View {
 
     private void drawFloatingTexts(Canvas canvas) {
         textPaint.setTypeface(uiBoldTypeface);
-        textPaint.setTextSize(24f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
         for (FloatingText floatingText : floatingTexts) {
             float fraction = RpgRules.clamp(floatingText.life / floatingText.maxLife, 0f, 1f);
-            textPaint.setColor(withAlpha(floatingText.color, Math.round(255f * fraction)));
-            drawTextWithShadow(canvas, floatingText.text, floatingText.x, floatingText.y, textPaint);
+            float elapsed = 1f - fraction;
+            float baseSize = floatingText.emphasis >= 3 ? 42f
+                    : floatingText.emphasis == 2 ? 34f
+                    : floatingText.emphasis == 1 ? 27f : 24f;
+            float pop = 1f + floatingText.emphasis * 0.09f
+                    * (1f - smootherStep(RpgRules.clamp(elapsed / 0.24f, 0f, 1f)));
+            textPaint.setTextSize(baseSize * pop);
+            int alpha = Math.round(255f * fraction);
+            if (floatingText.emphasis > 0) {
+                textPaint.setStyle(Paint.Style.STROKE);
+                textPaint.setStrokeWidth(floatingText.emphasis >= 2 ? 7f : 5f);
+                textPaint.setColor(withAlpha(Color.rgb(25, 3, 10), alpha));
+                canvas.drawText(floatingText.text, floatingText.x, floatingText.y, textPaint);
+                textPaint.setStyle(Paint.Style.FILL);
+                textPaint.setColor(withAlpha(floatingText.color, alpha));
+                canvas.drawText(floatingText.text, floatingText.x, floatingText.y, textPaint);
+            } else {
+                textPaint.setColor(withAlpha(floatingText.color, alpha));
+                drawTextWithShadow(canvas, floatingText.text,
+                        floatingText.x, floatingText.y, textPaint);
+            }
         }
+        textPaint.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawHitCounter(Canvas canvas) {
+        if (hitCombo < 2 || hitComboTimer <= 0f) {
+            return;
+        }
+        float fade = Math.min(1f, hitComboTimer / 0.26f);
+        float scale = 1f + hitComboPulse * 0.16f;
+        canvas.save();
+        canvas.scale(scale, scale, 78f, 424f);
+        paint.setShader(new LinearGradient(22f, 0f, 188f, 0f,
+                withAlpha(CRIMSON, Math.round(120f * fade)), Color.TRANSPARENT,
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(20f, 451f, 190f, 455f, paint);
+        paint.setShader(null);
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(hitCombo >= 100 ? 49f : 58f);
+        textPaint.setColor(withAlpha(hitCombo >= 30 ? GOLD : Color.WHITE,
+                Math.round(255f * fade)));
+        drawTextWithShadow(canvas, Integer.toString(hitCombo), 28f, 430f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(17f);
+        textPaint.setLetterSpacing(0.16f);
+        textPaint.setColor(withAlpha(CRIMSON, Math.round(235f * fade)));
+        canvas.drawText("HIT", 32f, 449f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        canvas.restore();
+    }
+
+    private void drawSkillCallout(Canvas canvas) {
+        if (skillCalloutTimer <= 0f || skillCalloutText.isEmpty()) {
+            return;
+        }
+        float progress = 1f - skillCalloutTimer / Math.max(0.01f, skillCalloutDuration);
+        float fade = smootherStep(RpgRules.clamp(progress / 0.18f, 0f, 1f))
+                * smootherStep(RpgRules.clamp(skillCalloutTimer / 0.18f, 0f, 1f));
+        float slide = 22f - easeOutCubic(RpgRules.clamp(progress / 0.28f, 0f, 1f)) * 18f;
+        paint.setShader(new LinearGradient(18f, 0f, 390f, 0f,
+                new int[]{withAlpha(Color.rgb(5, 7, 15), Math.round(220f * fade)),
+                        withAlpha(skillCalloutColor, Math.round(82f * fade)),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.42f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(18f, 248f, 405f, 320f, paint);
+        paint.setShader(null);
+        paint.setColor(withAlpha(skillCalloutColor, Math.round(230f * fade)));
+        canvas.drawRect(24f, 254f, 29f, 314f, paint);
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(13f);
+        textPaint.setLetterSpacing(0.14f);
+        textPaint.setColor(withAlpha(Color.rgb(215, 220, 232), Math.round(220f * fade)));
+        canvas.drawText("BLOOD ART", 42f + slide, 274f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(29f);
+        textPaint.setColor(withAlpha(Color.WHITE, Math.round(255f * fade)));
+        drawTextWithShadow(canvas, skillCalloutText, 42f + slide, 307f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawBossIntro(Canvas canvas) {
+        if (bossIntroTimer <= 0f || bossIntroName.isEmpty()) {
+            return;
+        }
+        float progress = 1f - bossIntroTimer / Math.max(0.01f, bossIntroDuration);
+        float enter = easeOutCubic(RpgRules.clamp(progress / 0.20f, 0f, 1f));
+        float exit = smootherStep(RpgRules.clamp(bossIntroTimer / 0.30f, 0f, 1f));
+        float fade = enter * exit;
+        float halfWidth = 342f * enter;
+        paint.setShader(new LinearGradient(18f, 0f, LOGICAL_WIDTH - 18f, 0f,
+                new int[]{Color.TRANSPARENT,
+                        withAlpha(Color.rgb(4, 5, 12), Math.round(240f * fade)),
+                        withAlpha(darken(bossIntroColor, 0.46f), Math.round(228f * fade)),
+                        withAlpha(Color.rgb(4, 5, 12), Math.round(240f * fade)),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.12f, 0.5f, 0.88f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(360f - halfWidth, 334f, 360f + halfWidth, 478f, paint);
+        paint.setShader(null);
+        paint.setColor(withAlpha(bossIntroColor, Math.round(215f * fade)));
+        canvas.drawRect(360f - halfWidth, 334f, 360f + halfWidth, 338f, paint);
+        canvas.drawRect(360f - halfWidth, 474f, 360f + halfWidth, 478f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        effectPath.reset();
+        effectPath.moveTo(360f, 350f);
+        effectPath.lineTo(378f, 370f);
+        effectPath.lineTo(360f, 390f);
+        effectPath.lineTo(342f, 370f);
+        effectPath.close();
+        canvas.drawPath(effectPath, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setLetterSpacing(0.22f);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(withAlpha(bossIntroColor, Math.round(240f * fade)));
+        canvas.drawText("BOSS ENCOUNTER", 360f, 416f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(38f);
+        textPaint.setColor(withAlpha(Color.WHITE, Math.round(255f * fade)));
+        drawTextWithShadow(canvas, bossIntroName, 360f, 458f, textPaint);
     }
 
     private void drawHud(Canvas canvas) {
@@ -4006,7 +4364,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.14.1 DEMO  ·  BOSS HUNT", 360f, 1120f, textPaint);
+        canvas.drawText("v4.15.0 DEMO  ·  IMPACT", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {
@@ -4575,27 +4933,28 @@ public final class GameView extends View {
     private void drawAtlasBlend(Canvas canvas, Bitmap atlas, int columns, int rows,
                                 int firstColumn, int firstRow,
                                 int secondColumn, int secondRow, float blend,
-                                RectF destination, boolean flip, int alpha, int inset) {
+                                RectF destination, boolean flip, int alpha, int inset,
+                                boolean hitFlash) {
         float easedBlend = RpgRules.clamp(blend, 0f, 1f);
         if (firstColumn == secondColumn && firstRow == secondRow || easedBlend <= 0.015f) {
             drawAtlasCell(canvas, atlas, columns, rows, firstColumn, firstRow,
-                    destination, flip, alpha, inset);
+                    destination, flip, alpha, inset, hitFlash);
             return;
         }
         if (easedBlend >= 0.985f) {
             drawAtlasCell(canvas, atlas, columns, rows, secondColumn, secondRow,
-                    destination, flip, alpha, inset);
+                    destination, flip, alpha, inset, hitFlash);
             return;
         }
         drawAtlasCell(canvas, atlas, columns, rows, firstColumn, firstRow,
-                destination, flip, Math.round(alpha * (1f - easedBlend)), inset);
+                destination, flip, Math.round(alpha * (1f - easedBlend)), inset, hitFlash);
         drawAtlasCell(canvas, atlas, columns, rows, secondColumn, secondRow,
-                destination, flip, Math.round(alpha * easedBlend), inset);
+                destination, flip, Math.round(alpha * easedBlend), inset, hitFlash);
     }
 
     private void drawAtlasCell(Canvas canvas, Bitmap atlas, int columns, int rows,
                                int column, int row, RectF destination, boolean flip,
-                               int alpha, int inset) {
+                               int alpha, int inset, boolean hitFlash) {
         if (atlas == null || atlas.isRecycled()) {
             return;
         }
@@ -4607,7 +4966,7 @@ public final class GameView extends View {
         int bottom = Math.round((safeRow + 1) * atlas.getHeight() / (float) rows) - inset;
         atlasSource.set(left, top, right, bottom);
         paint.setAlpha(Math.max(0, Math.min(255, alpha)));
-        paint.setColorFilter(ACTOR_LIFT_FILTER);
+        paint.setColorFilter(hitFlash ? ACTOR_HIT_FLASH_FILTER : ACTOR_LIFT_FILTER);
         if (flip) {
             canvas.save();
             canvas.scale(-1f, 1f, destination.centerX(), destination.centerY());
@@ -4837,6 +5196,7 @@ public final class GameView extends View {
         recycleBitmap(bloodArtsAtlas);
         recycleBitmap(bloodArtsAnimationAtlasA);
         recycleBitmap(bloodArtsAnimationAtlasB);
+        recycleBitmap(impactAnimationAtlas);
         recycleBitmap(currentBackground);
         heroAtlas = null;
         enemyAtlas = null;
@@ -4846,6 +5206,7 @@ public final class GameView extends View {
         bloodArtsAtlas = null;
         bloodArtsAnimationAtlasA = null;
         bloodArtsAnimationAtlasB = null;
+        impactAnimationAtlas = null;
         currentBackground = null;
         super.onDetachedFromWindow();
     }
@@ -5260,21 +5621,37 @@ public final class GameView extends View {
         float seed;
     }
 
+    private static final class ImpactEffect {
+        int style;
+        float x;
+        float y;
+        float direction;
+        float rotation;
+        float life;
+        float maxLife;
+    }
+
     private static final class FloatingText {
         float x;
         float y;
         float life;
         float maxLife;
         int color;
+        int emphasis;
         String text;
 
         FloatingText(float x, float y, String text, int color, float life) {
+            this(x, y, text, color, life, 0);
+        }
+
+        FloatingText(float x, float y, String text, int color, float life, int emphasis) {
             this.x = x;
             this.y = y;
             this.text = text;
             this.color = color;
             this.life = life;
             this.maxLife = life;
+            this.emphasis = emphasis;
         }
     }
 }
