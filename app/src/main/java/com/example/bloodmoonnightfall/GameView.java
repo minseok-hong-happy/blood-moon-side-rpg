@@ -126,7 +126,8 @@ public final class GameView extends View {
         DEFEAT,
         NEW_CONFIRM,
         STORY,
-        INVENTORY
+        INVENTORY,
+        OFFLINE_REWARD
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -164,6 +165,7 @@ public final class GameView extends View {
     private Screen screen = Screen.TITLE;
     private Screen growthReturnScreen = Screen.PLAYING;
     private Screen inventoryReturnScreen = Screen.PLAYING;
+    private Screen offlineReturnScreen = Screen.STORY;
     private long lastFrameNanos;
     private float accumulator;
     private float renderScale = 1f;
@@ -228,6 +230,10 @@ public final class GameView extends View {
     private boolean storyFullRestore;
     private boolean storyFinale;
     private int selectedInventoryItem = -1;
+    private int offlineElapsedSeconds;
+    private int offlineGoldReward;
+    private int offlineXpReward;
+    private int offlineLevelsGained;
 
     private boolean saveDirty;
     private float saveDelay;
@@ -257,6 +263,7 @@ public final class GameView extends View {
     private final RectF inventoryHudButton = new RectF(398f, 232f, 544f, 286f);
     private final RectF inventoryActionButton = new RectF(52f, 1040f, 412f, 1122f);
     private final RectF inventoryCloseButton = new RectF(430f, 1040f, 668f, 1122f);
+    private final RectF offlineClaimButton = new RectF(134f, 898f, 586f, 988f);
     private final RectF[] upgradeButtons = new RectF[7];
 
     public GameView(Context context) {
@@ -1474,10 +1481,49 @@ public final class GameView extends View {
 
     private void continueAdventure() {
         audio.playUiTap();
+        long nowEpochSeconds = System.currentTimeMillis() / 1000L;
+        long lastActiveEpochSeconds = progressStore.lastActiveEpochSeconds();
         RpgProgress loaded = progressStore.load();
         progress = loaded == null ? RpgProgress.fresh() : loaded;
         progress.normalizeUnlocks();
         beginAdventure();
+        if (loaded != null) {
+            applyOfflineRewards(RpgRules.offlineElapsedSeconds(
+                    lastActiveEpochSeconds, nowEpochSeconds));
+        }
+    }
+
+    private void applyOfflineRewards(int elapsedSeconds) {
+        if (elapsedSeconds < 60) {
+            return;
+        }
+        offlineElapsedSeconds = elapsedSeconds;
+        offlineGoldReward = RpgRules.offlineGoldReward(elapsedSeconds,
+                progress.level, progress.region, progress.wave);
+        offlineXpReward = RpgRules.offlineXpReward(elapsedSeconds,
+                progress.level, progress.region, progress.wave);
+        int previousLevel = progress.level;
+        progress.gold = (int) Math.min(100_000_000L,
+                (long) progress.gold + offlineGoldReward);
+        progress.xp = (int) Math.min(9_999_999L,
+                (long) progress.xp + offlineXpReward);
+        gainLevels();
+        offlineLevelsGained = progress.level - previousLevel;
+        offlineReturnScreen = screen;
+        screen = Screen.OFFLINE_REWARD;
+        resetPointers();
+        saveNow();
+    }
+
+    private void claimOfflineRewards() {
+        audio.playUiTap();
+        screen = offlineReturnScreen;
+        offlineElapsedSeconds = 0;
+        offlineGoldReward = 0;
+        offlineXpReward = 0;
+        offlineLevelsGained = 0;
+        resetPointers();
+        lastFrameNanos = System.nanoTime();
     }
 
     private void beginAdventure() {
@@ -1890,7 +1936,7 @@ public final class GameView extends View {
             canvas.scale(1f + comfortZoom, 1f + comfortZoom, pivotX, pivotY);
         }
         drawBackground(canvas);
-        if (screen == Screen.STORY) {
+        if (screen == Screen.STORY || screen == Screen.OFFLINE_REWARD) {
             drawStoryStage(canvas);
         } else if (screen != Screen.TITLE && screen != Screen.NEW_CONFIRM) {
             drawArena(canvas);
@@ -1908,6 +1954,8 @@ public final class GameView extends View {
             }
         } else if (screen == Screen.STORY) {
             drawStory(canvas);
+        } else if (screen == Screen.OFFLINE_REWARD) {
+            drawOfflineReward(canvas);
         } else {
             drawHud(canvas);
             if (screen == Screen.PLAYING) {
@@ -3081,7 +3129,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(21f);
         textPaint.setColor(GOLD);
-        canvas.drawText("자동 사냥  ·  성장  ·  장비  ·  스토리", 360f, 572f, textPaint);
+        canvas.drawText("자동 사냥  ·  오프라인 성장  ·  장비  ·  스토리", 360f, 572f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(17f);
         textPaint.setColor(Color.rgb(194, 200, 214));
@@ -3099,7 +3147,89 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.6.0 DEMO  ·  NIGHT VISION", 360f, 1120f, textPaint);
+        canvas.drawText("v4.7.0 DEMO  ·  AFK REWARDS", 360f, 1120f, textPaint);
+    }
+
+    private void drawOfflineReward(Canvas canvas) {
+        drawOverlay(canvas, 210);
+        RectF panel = new RectF(54f, 260f, 666f, 1040f);
+        paint.setColor(Color.argb(248, 7, 9, 19));
+        canvas.drawRoundRect(panel, 32f, 32f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(Color.argb(190, 211, 39, 75));
+        canvas.drawRoundRect(panel, 32f, 32f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setShader(new RadialGradient(360f, 350f, 190f,
+                Color.argb(90, 205, 30, 67), Color.TRANSPARENT,
+                Shader.TileMode.CLAMP));
+        canvas.drawCircle(360f, 350f, 190f, paint);
+        paint.setShader(null);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(17f);
+        textPaint.setColor(CRIMSON);
+        canvas.drawText("OFFLINE HUNT REPORT", 360f, 322f, textPaint);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(39f);
+        textPaint.setColor(Color.WHITE);
+        drawTextWithShadow(canvas, "밤에도 사냥은 계속됐다", 360f, 383f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(Color.rgb(190, 201, 220));
+        canvas.drawText("자리를 비운 동안 카엘이 모은 전리품입니다", 360f, 427f, textPaint);
+
+        paint.setColor(Color.argb(185, 16, 20, 34));
+        canvas.drawRoundRect(new RectF(100f, 474f, 620f, 548f), 20f, 20f, paint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(20f);
+        textPaint.setColor(CYAN);
+        canvas.drawText("사냥 시간  ·  " + formatOfflineDuration(offlineElapsedSeconds),
+                360f, 521f, textPaint);
+
+        RectF goldCard = new RectF(100f, 580f, 350f, 754f);
+        RectF xpCard = new RectF(370f, 580f, 620f, 754f);
+        drawOfflineRewardCard(canvas, goldCard, "◆", "골드",
+                "+" + formatNumber(offlineGoldReward), GOLD);
+        drawOfflineRewardCard(canvas, xpCard, "✦", "경험치",
+                "+" + formatNumber(offlineXpReward), CYAN);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(20f);
+        textPaint.setColor(offlineLevelsGained > 0 ? GOLD : Color.rgb(183, 191, 207));
+        canvas.drawText(offlineLevelsGained > 0
+                        ? "레벨 " + offlineLevelsGained + " 상승  ·  현재 Lv." + progress.level
+                        : "현재 Lv." + progress.level + "  ·  다음 성장에 반영 완료",
+                360f, 813f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(15f);
+        textPaint.setColor(Color.rgb(137, 147, 167));
+        canvas.drawText("보상은 최대 8시간까지 누적됩니다", 360f, 854f, textPaint);
+        drawMenuButton(canvas, offlineClaimButton, "보상 받고 모험 계속", true);
+    }
+
+    private void drawOfflineRewardCard(Canvas canvas, RectF bounds, String icon,
+                                       String label, String value, int color) {
+        paint.setColor(Color.argb(205, 13, 17, 29));
+        canvas.drawRoundRect(bounds, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(withAlpha(color, 155));
+        canvas.drawRoundRect(bounds, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(28f);
+        textPaint.setColor(color);
+        canvas.drawText(icon, bounds.centerX(), bounds.top + 49f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.rgb(176, 185, 202));
+        canvas.drawText(label, bounds.centerX(), bounds.top + 88f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(25f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText(value, bounds.centerX(), bounds.top + 132f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -3733,7 +3863,11 @@ public final class GameView extends View {
             rightHeld = false;
         }
 
-        if (screen == Screen.STORY) {
+        if (screen == Screen.OFFLINE_REWARD) {
+            if (offlineClaimButton.contains(x, y)) {
+                claimOfflineRewards();
+            }
+        } else if (screen == Screen.STORY) {
             advanceStory();
         } else if (screen == Screen.TITLE) {
             if (continueButton.contains(x, y)) {
@@ -3818,12 +3952,19 @@ public final class GameView extends View {
             saveNow();
             screen = Screen.PAUSED;
             resetPointers();
+        } else if (screen == Screen.PAUSED || screen == Screen.STORY) {
+            saveNow();
         }
     }
 
     public void resumeFromSystem() {
         audio.resume();
         lastFrameNanos = System.nanoTime();
+        if (screen == Screen.PAUSED || screen == Screen.STORY) {
+            long nowEpochSeconds = System.currentTimeMillis() / 1000L;
+            applyOfflineRewards(RpgRules.offlineElapsedSeconds(
+                    progressStore.lastActiveEpochSeconds(), nowEpochSeconds));
+        }
     }
 
     @Override
@@ -3833,6 +3974,10 @@ public final class GameView extends View {
     }
 
     public boolean handleBack() {
+        if (screen == Screen.OFFLINE_REWARD) {
+            claimOfflineRewards();
+            return true;
+        }
         if (screen == Screen.PLAYING) {
             saveNow();
             screen = Screen.PAUSED;
@@ -4098,6 +4243,16 @@ public final class GameView extends View {
             return String.format(Locale.US, "%.1fK", value / 1_000f);
         }
         return String.valueOf(value);
+    }
+
+    private static String formatOfflineDuration(int seconds) {
+        int safeSeconds = Math.max(0, seconds);
+        int hours = safeSeconds / 3600;
+        int minutes = safeSeconds % 3600 / 60;
+        if (hours > 0) {
+            return hours + "시간 " + minutes + "분";
+        }
+        return Math.max(1, minutes) + "분";
     }
 
     private static String rarityName(int rarity) {

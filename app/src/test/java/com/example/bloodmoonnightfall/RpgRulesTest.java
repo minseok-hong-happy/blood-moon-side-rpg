@@ -69,4 +69,32 @@ public final class RpgRulesTest {
         assertEquals(300, RpgRules.equipmentPower(2, 5, 60, 3, 1000));
         assertTrue(RpgRules.equipmentPower(0, 1, 1, 0, 0) >= 1);
     }
+
+    @Test
+    public void offlineElapsedTimeIsCappedAtEightHours() {
+        long now = 1_000_000L;
+        assertEquals(RpgRules.OFFLINE_REWARD_CAP_SECONDS,
+                RpgRules.offlineElapsedSeconds(now - 24L * 60L * 60L, now));
+    }
+
+    @Test
+    public void offlineElapsedTimeRejectsMissingAndBackwardClocks() {
+        assertEquals(0, RpgRules.offlineElapsedSeconds(0L, 100L));
+        assertEquals(0, RpgRules.offlineElapsedSeconds(200L, 100L));
+    }
+
+    @Test
+    public void offlineRewardsRequireOneFullMinute() {
+        assertEquals(0, RpgRules.offlineGoldReward(59, 1, 0, 1));
+        assertEquals(0, RpgRules.offlineXpReward(59, 1, 0, 1));
+    }
+
+    @Test
+    public void offlineRewardsScaleWithAdventureProgress() {
+        int elapsed = 60 * 60;
+        assertTrue(RpgRules.offlineGoldReward(elapsed, 30, 2, 5)
+                > RpgRules.offlineGoldReward(elapsed, 1, 0, 1));
+        assertTrue(RpgRules.offlineXpReward(elapsed, 30, 2, 5)
+                > RpgRules.offlineXpReward(elapsed, 1, 0, 1));
+    }
 }

@@ -15,6 +15,7 @@ public final class RpgProgressStore {
     private static final String SLOT_A = "adventure_a";
     private static final String SLOT_B = "adventure_b";
     private static final String MIGRATION_DONE = "legacy_migration_done";
+    private static final String LAST_ACTIVE_EPOCH_SECONDS = "last_active_epoch_seconds";
     private static final String LEGACY_DUEL_PREFS = "nightfall_duel_progress_v2";
     private static final String LEGACY_WORLD_PREFS = "nightfall_save_v1";
 
@@ -73,7 +74,12 @@ public final class RpgProgressStore {
         preferences.edit()
                 .putBoolean(MIGRATION_DONE, true)
                 .putString(target, progress.encode())
+                .putLong(LAST_ACTIVE_EPOCH_SECONDS, System.currentTimeMillis() / 1000L)
                 .apply();
+    }
+
+    public long lastActiveEpochSeconds() {
+        return preferences.getLong(LAST_ACTIVE_EPOCH_SECONDS, 0L);
     }
 
     /** Explicit reset also creates a tombstone so an older save cannot be imported again. */
@@ -81,6 +87,7 @@ public final class RpgProgressStore {
         preferences.edit()
                 .remove(SLOT_A)
                 .remove(SLOT_B)
+                .remove(LAST_ACTIVE_EPOCH_SECONDS)
                 .putBoolean(MIGRATION_DONE, true)
                 .apply();
     }

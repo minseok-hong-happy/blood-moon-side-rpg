@@ -8,6 +8,7 @@ public final class RpgRules {
     public static final int WAVES_PER_REGION = 5;
     public static final int LEVEL_CAP = 60;
     public static final int UPGRADE_CAP = 30;
+    public static final int OFFLINE_REWARD_CAP_SECONDS = 8 * 60 * 60;
 
     public static final int ENEMY_THRALL = 0;
     public static final int ENEMY_HUNTER = 1;
@@ -144,6 +145,32 @@ public final class RpgRules {
         int safeRarity = clamp(rarity, 0, 3);
         return clamp(2 + region * 5 + wave * 2 + heroLevel / 2
                 + safeRarity * (4 + region * 2) + chapterClears * 3, 1, 300);
+    }
+
+    public static int offlineElapsedSeconds(long lastActiveEpochSeconds,
+                                            long nowEpochSeconds) {
+        if (lastActiveEpochSeconds <= 0L || nowEpochSeconds <= lastActiveEpochSeconds) {
+            return 0;
+        }
+        long elapsed = Math.min(nowEpochSeconds - lastActiveEpochSeconds,
+                OFFLINE_REWARD_CAP_SECONDS);
+        return (int) elapsed;
+    }
+
+    public static int offlineGoldReward(int elapsedSeconds, int level, int region, int wave) {
+        int minutes = clamp(elapsedSeconds, 0, OFFLINE_REWARD_CAP_SECONDS) / 60;
+        long perMinute = 10L + clamp(level, 1, LEVEL_CAP) * 2L
+                + clamp(region, 0, REGION_COUNT - 1) * 8L
+                + clamp(wave, 1, WAVES_PER_REGION) * 3L;
+        return (int) Math.min(2_000_000L, minutes * perMinute);
+    }
+
+    public static int offlineXpReward(int elapsedSeconds, int level, int region, int wave) {
+        int minutes = clamp(elapsedSeconds, 0, OFFLINE_REWARD_CAP_SECONDS) / 60;
+        long perMinute = 3L + clamp(level, 1, LEVEL_CAP) / 2L
+                + clamp(region, 0, REGION_COUNT - 1) * 3L
+                + clamp(wave, 1, WAVES_PER_REGION);
+        return (int) Math.min(1_000_000L, minutes * perMinute);
     }
 
     public static int clamp(int value, int minimum, int maximum) {
