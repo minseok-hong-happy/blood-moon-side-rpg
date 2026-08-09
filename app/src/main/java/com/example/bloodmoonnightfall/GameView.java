@@ -479,6 +479,7 @@ public final class GameView extends View {
         updateWaveSpawning(dt);
         updateEnemies(dt);
         resolveActorSpacing();
+        recenterCombat(dt);
         updateProjectiles(dt);
         updateParticles(dt);
         updateSkillEffects(dt);
@@ -1360,6 +1361,36 @@ public final class GameView extends View {
         hero.x = RpgRules.clamp(hero.x, RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
         for (Enemy enemy : enemies) {
             enemy.x = RpgRules.clamp(enemy.x, RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
+        }
+    }
+
+    private void recenterCombat(float dt) {
+        float shift = RpgRules.combatRecenteringShift(hero.x, dt);
+        if (shift <= 0f) {
+            return;
+        }
+        hero.x -= shift;
+        hero.previousX -= shift;
+        for (Enemy enemy : enemies) {
+            enemy.x = Math.max(RpgRules.ARENA_LEFT, enemy.x - shift);
+            enemy.previousX = Math.max(RpgRules.ARENA_LEFT, enemy.previousX - shift);
+        }
+        for (Projectile projectile : projectiles) {
+            projectile.x -= shift;
+            projectile.previousX -= shift;
+        }
+        for (Particle particle : particles) {
+            particle.x -= shift;
+        }
+        for (FloatingText floatingText : floatingTexts) {
+            floatingText.x -= shift;
+        }
+        for (SkillEffect effect : skillEffects) {
+            effect.x -= shift;
+            effect.targetX -= shift;
+        }
+        if (impactX > 0f) {
+            impactX -= shift;
         }
     }
 
@@ -3571,7 +3602,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.8.0 DEMO  ·  BLOOD ARTS", 360f, 1120f, textPaint);
+        canvas.drawText("v4.9.0 DEMO  ·  CENTER COMBAT", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {

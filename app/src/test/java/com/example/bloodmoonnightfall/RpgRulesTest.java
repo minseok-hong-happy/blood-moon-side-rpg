@@ -105,4 +105,17 @@ public final class RpgRulesTest {
         assertTrue(RpgRules.offlineXpReward(elapsed, 30, 2, 5)
                 > RpgRules.offlineXpReward(elapsed, 1, 0, 1));
     }
+
+    @Test
+    public void combatRecenteringStartsOnlyPastTheCenterLine() {
+        assertEquals(0f, RpgRules.combatRecenteringShift(340f, 1f / 60f), 0.001f);
+        assertTrue(RpgRules.combatRecenteringShift(410f, 1f / 60f) > 0f);
+    }
+
+    @Test
+    public void combatRecenteringIsFrameRateBounded() {
+        float shift = RpgRules.combatRecenteringShift(620f, 1f / 60f);
+        assertTrue(shift <= 620f / 60f + 0.001f);
+        assertTrue(620f - shift >= RpgRules.COMBAT_ANCHOR_X);
+    }
 }

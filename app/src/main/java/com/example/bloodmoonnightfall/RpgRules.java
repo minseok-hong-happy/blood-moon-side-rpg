@@ -4,6 +4,8 @@ package com.example.bloodmoonnightfall;
 public final class RpgRules {
     public static final float ARENA_LEFT = 54f;
     public static final float ARENA_RIGHT = 666f;
+    public static final float COMBAT_ANCHOR_X = 320f;
+    public static final float COMBAT_RECENTER_TRIGGER_X = 350f;
     public static final int REGION_COUNT = 3;
     public static final int WAVES_PER_REGION = 5;
     public static final int LEVEL_CAP = 60;
@@ -186,6 +188,14 @@ public final class RpgRules {
                 + clamp(region, 0, REGION_COUNT - 1) * 3L
                 + clamp(wave, 1, WAVES_PER_REGION);
         return (int) Math.min(1_000_000L, minutes * perMinute);
+    }
+
+    public static float combatRecenteringShift(float heroX, float deltaSeconds) {
+        if (heroX <= COMBAT_RECENTER_TRIGGER_X || deltaSeconds <= 0f) {
+            return 0f;
+        }
+        return Math.min(heroX - COMBAT_ANCHOR_X,
+                620f * clamp(deltaSeconds, 0f, 0.05f));
     }
 
     public static int clamp(int value, int minimum, int maximum) {
