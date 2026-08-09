@@ -1386,7 +1386,8 @@ public final class GameView extends View {
             projectile.kind = enemy.kind == RpgRules.ENEMY_BOSS ? 2 : 1;
             projectile.x = enemy.x + enemy.facing * 48f;
             projectile.previousX = projectile.x;
-            projectile.y = GROUND_Y - 108f;
+            projectile.y = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 108f;
             projectile.velocityX = enemy.facing
                     * (enemy.kind == RpgRules.ENEMY_BOSS ? 365f : 315f);
             projectile.damage = damage;
@@ -1405,7 +1406,9 @@ public final class GameView extends View {
             enemy.facing = hero.x >= enemy.x ? 1 : -1;
             int phaseColor = enemy.kind == RpgRules.ENEMY_BOSS
                     ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : VIOLET;
-            addBurst(enemy.x, GROUND_Y - 94f, phaseColor, 20, 190f);
+            addBurst(enemy.x, enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 94f,
+                    phaseColor, 20, 190f);
             if (Math.abs(hero.x - enemy.x) <= 112f) {
                 damageHero(damage, enemy.x, 150f);
             }
@@ -1415,7 +1418,7 @@ public final class GameView extends View {
             }
             addNovaBurst(enemy.x, GROUND_Y - 82f, 255f);
             if (enemy.kind == RpgRules.ENEMY_BOSS) {
-                addBurst(enemy.x, GROUND_Y - 112f,
+                addBurst(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y),
                         bossAccentColor(enemy.bossVariant), 34, 280f);
             }
             screenShake = Math.max(screenShake, 15f);
@@ -1435,10 +1438,11 @@ public final class GameView extends View {
                 }
                 float difference = b.x - a.x;
                 float distance = Math.abs(difference);
-                if (distance < 44f) {
+                float minimumDistance = BossPresentationMetrics.enemySpacing(a.kind, b.kind);
+                if (distance < minimumDistance) {
                     float direction = difference == 0f ? (second % 2 == 0 ? 1f : -1f)
                             : Math.signum(difference);
-                    float push = (44f - distance) * 0.5f;
+                    float push = (minimumDistance - distance) * 0.5f;
                     a.x -= direction * push;
                     b.x += direction * push;
                 }
@@ -1451,9 +1455,10 @@ public final class GameView extends View {
                 }
                 float difference = enemy.x - hero.x;
                 float distance = Math.abs(difference);
-                if (distance < 58f) {
+                float minimumDistance = BossPresentationMetrics.heroSpacing(enemy.kind);
+                if (distance < minimumDistance) {
                     float direction = difference == 0f ? hero.facing : Math.signum(difference);
-                    float push = (58f - distance) * 0.5f;
+                    float push = (minimumDistance - distance) * 0.5f;
                     hero.x -= direction * push;
                     enemy.x += direction * push;
                 }
@@ -1562,8 +1567,8 @@ public final class GameView extends View {
             enemy.phaseTriggered = true;
             enemy.invulnerability = 0.22f;
             enemy.cooldown = 0.08f;
-            addNovaBurst(enemy.x, GROUND_Y - 96f, 190f);
-            addBurst(enemy.x, GROUND_Y - 128f,
+            addNovaBurst(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y), 190f);
+            addBurst(enemy.x, BossPresentationMetrics.torsoY(GROUND_Y),
                     bossAccentColor(enemy.bossVariant), 42, 310f);
             skillBloom = Math.max(skillBloom, 0.82f);
             screenShake = Math.max(screenShake, 5f);
@@ -1577,10 +1582,14 @@ public final class GameView extends View {
             float followThrough = comboIndex == 2 ? 390f : 325f;
             hero.velocity = direction * Math.max(Math.abs(hero.velocity), followThrough);
         }
-        floatingTexts.add(new FloatingText(enemy.x, GROUND_Y - 210f,
+        float damageTextY = enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.healthBarY(GROUND_Y) - 18f : GROUND_Y - 210f;
+        floatingTexts.add(new FloatingText(enemy.x, damageTextY,
                 "-" + applied, heavy ? GOLD : Color.WHITE, 0.9f));
-        addBurst(enemy.x, GROUND_Y - 106f, CRIMSON, heavy ? 18 : 10, heavy ? 230f : 155f);
-        registerEnemyImpact(enemy.x, GROUND_Y - 104f, direction, heavy, killed);
+        float impactY = enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 104f;
+        addBurst(enemy.x, impactY, CRIMSON, heavy ? 18 : 10, heavy ? 230f : 155f);
+        registerEnemyImpact(enemy.x, impactY, direction, heavy, killed);
         if (killed) {
             enemy.dead = true;
             enemy.deadTimer = enemy.kind == RpgRules.ENEMY_BOSS ? 1.15f : 0.68f;
@@ -2460,14 +2469,17 @@ public final class GameView extends View {
                 int glowColor = enemy.kind == RpgRules.ENEMY_BOSS
                         ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : CYAN;
                 drawActorReadabilityGlow(canvas, enemyRenderX(enemy),
-                        glowColor, enemy.kind == RpgRules.ENEMY_BOSS ? 104f
+                        glowColor, enemy.kind == RpgRules.ENEMY_BOSS
+                                ? BossPresentationMetrics.readabilityGlowRadius()
                                 : enemy.elite ? 86f : 72f);
             }
         }
         drawActorReadabilityGlow(canvas, heroRenderX(), CRIMSON, 82f);
         for (Enemy enemy : enemies) {
             drawFighterShadow(canvas, enemyRenderX(enemy), enemy.dead ? 0.3f : 0.85f,
-                    enemy.kind == RpgRules.ENEMY_BOSS ? 50f : enemy.elite ? 39f : 32f);
+                    enemy.kind == RpgRules.ENEMY_BOSS
+                            ? BossPresentationMetrics.shadowHalfWidth()
+                            : enemy.elite ? 39f : 32f);
         }
         drawFighterShadow(canvas, heroRenderX(), hero.dead ? 0.35f : 1f, 35f);
         for (Enemy enemy : enemies) {
@@ -2809,7 +2821,8 @@ public final class GameView extends View {
             paint.setStrokeWidth(5f + pulse * 3f);
             paint.setColor(withAlpha(bossAccentColor(enemy.bossVariant),
                     Math.round(110f + pulse * 75f)));
-            canvas.drawCircle(x, GROUND_Y - 94f, 108f + pulse * 12f, paint);
+            canvas.drawCircle(x, BossPresentationMetrics.torsoY(GROUND_Y),
+                    BossPresentationMetrics.phaseAuraRadius(pulse), paint);
             paint.setStyle(Paint.Style.FILL);
         }
         if (enemy.kind == RpgRules.ENEMY_BOSS) {
@@ -2835,8 +2848,8 @@ public final class GameView extends View {
                 secondColumn = 1 - firstColumn;
                 blend = smootherStep(frame - (float) Math.floor(frame));
             }
-            float width = 220f;
-            float height = 186f;
+            float width = BossPresentationMetrics.spriteWidth();
+            float height = BossPresentationMetrics.spriteHeight();
             spriteDestination.set(x - width * 0.5f,
                     GROUND_Y - height + 13f, x + width * 0.5f, GROUND_Y + 13f);
             canvas.save();
@@ -2897,8 +2910,10 @@ public final class GameView extends View {
         }
         if (!enemy.dead && enemy.spawnTimer <= 0f && (enemy.kind == RpgRules.ENEMY_BOSS
                 || enemy.elite || enemy.hurtTimer > 0f)) {
-            float width = enemy.kind == RpgRules.ENEMY_BOSS ? 178f : enemy.elite ? 112f : 82f;
-            float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 204f
+            float width = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.healthBarWidth() : enemy.elite ? 112f : 82f;
+            float y = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.healthBarY(GROUND_Y)
                     : enemy.elite ? GROUND_Y - 176f : GROUND_Y - 150f;
             drawMiniHealthBar(canvas, x - width * 0.5f, y, width,
                     enemy.health / Math.max(1f, enemy.maxHealth),
@@ -2918,17 +2933,23 @@ public final class GameView extends View {
                 ? bossAccentColor(enemy.bossVariant)
                 : enemy.elite ? GOLD : enemy.actionType == ENEMY_RANGED ? VIOLET : CRIMSON;
         float radius = enemy.actionType == ENEMY_NOVA ? 255f
-                : enemy.kind == RpgRules.ENEMY_BOSS ? 88f : 58f;
+                : enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.telegraphRadius() : 58f;
         float x = enemyRenderX(enemy);
+        float telegraphY = enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 142f;
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4f + fraction * 5f);
         paint.setColor(withAlpha(color, Math.round(72f + fraction * 165f)));
         canvas.drawCircle(x, enemy.actionType == ENEMY_NOVA
-                ? GROUND_Y - 78f : GROUND_Y - 142f, radius * (0.78f + fraction * 0.22f), paint);
+                ? GROUND_Y - 78f : telegraphY,
+                radius * (0.78f + fraction * 0.22f), paint);
         if (enemy.actionType == ENEMY_RANGED) {
             paint.setStrokeWidth(2f);
             paint.setColor(withAlpha(color, Math.round(38f + fraction * 82f)));
-            canvas.drawLine(x, GROUND_Y - 108f, heroRenderX(), GROUND_Y - 108f, paint);
+            float lineY = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 108f;
+            canvas.drawLine(x, lineY, heroRenderX(), lineY, paint);
         }
         paint.setStyle(Paint.Style.FILL);
     }
@@ -3985,7 +4006,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.14.0 DEMO  ·  BOSS HUNT", 360f, 1120f, textPaint);
+        canvas.drawText("v4.14.1 DEMO  ·  BOSS HUNT", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {

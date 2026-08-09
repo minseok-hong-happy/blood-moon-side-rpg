@@ -106,6 +106,19 @@ public final class RpgRulesTest {
     }
 
     @Test
+    public void bossesKeepACommandingSilhouetteAndClearAttachedUi() {
+        float groundY = 866f;
+        float spriteTop = groundY - BossPresentationMetrics.spriteHeight() + 13f;
+        assertTrue(BossPresentationMetrics.spriteWidth() >= 280f);
+        assertTrue(BossPresentationMetrics.spriteHeight() >= 240f);
+        assertTrue(BossPresentationMetrics.healthBarY(groundY) <= spriteTop - 24f);
+        assertTrue(BossPresentationMetrics.enemySpacing(RpgRules.ENEMY_BOSS,
+                RpgRules.ENEMY_THRALL)
+                > BossPresentationMetrics.enemySpacing(RpgRules.ENEMY_THRALL,
+                RpgRules.ENEMY_HUNTER));
+    }
+
+    @Test
     public void lateEnemiesAreStrongerAndMoreRewarding() {
         assertTrue(RpgRules.enemyMaxHealth(RpgRules.ENEMY_THRALL, 2, 4, 10, 0)
                 > RpgRules.enemyMaxHealth(RpgRules.ENEMY_THRALL, 0, 1, 1, 0));
