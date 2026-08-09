@@ -7,6 +7,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -30,7 +31,7 @@ public final class GameView extends View {
     private static final float CONTROL_TOP = 936f;
     private static final float FIXED_STEP = 1f / 60f;
     private static final int MAX_ACTIVE_ENEMIES = 3;
-    private static final int MAX_PARTICLES = 260;
+    private static final int MAX_PARTICLES = 420;
 
     private static final int CRIMSON = Color.rgb(214, 31, 70);
     private static final int BLOOD = Color.rgb(142, 13, 44);
@@ -44,6 +45,10 @@ public final class GameView extends View {
     private static final int ACTION_SPEAR = 2;
     private static final int ACTION_SIPHON = 3;
     private static final int ACTION_NOVA = 4;
+
+    private static final int FX_TETHER = 1;
+    private static final int FX_NOVA = 2;
+    private static final int FX_SPEAR_IMPACT = 3;
 
     private static final int ENEMY_MELEE = 1;
     private static final int ENEMY_HEAVY = 2;
@@ -109,6 +114,11 @@ public final class GameView extends View {
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+    private final Path effectPath = new Path();
+    private final Rect atlasSource = new Rect();
+    private final RectF spriteDestination = new RectF();
+    private final RectF trailDestination = new RectF();
+    private final RectF effectBounds = new RectF();
     private final Typeface titleTypeface = Typeface.create("serif", Typeface.BOLD);
     private final Typeface uiTypeface = Typeface.create("sans-serif", Typeface.NORMAL);
     private final Typeface uiBoldTypeface = Typeface.create("sans-serif", Typeface.BOLD);
@@ -132,6 +142,7 @@ public final class GameView extends View {
     private final List<Projectile> projectiles = new ArrayList<>();
     private final List<Particle> particles = new ArrayList<>();
     private final List<FloatingText> floatingTexts = new ArrayList<>();
+    private final List<SkillEffect> skillEffects = new ArrayList<>();
 
     private Screen screen = Screen.TITLE;
     private Screen growthReturnScreen = Screen.PLAYING;
@@ -142,6 +153,7 @@ public final class GameView extends View {
     private float renderOffsetX;
     private float renderOffsetY;
     private float ambientClock;
+    private float renderInterpolation;
     private float hitStop;
     private float screenShake;
     private float damageFlash;
@@ -151,6 +163,8 @@ public final class GameView extends View {
     private float impactDirection = 1f;
     private float cameraKickX;
     private float cameraKickY;
+    private float cameraZoomPulse;
+    private float skillBloom;
     private boolean impactHeavy;
     private float toastTimer;
     private String toastText = "";
@@ -284,7 +298,7 @@ public final class GameView extends View {
             return;
         }
         combatAtlasLoadAttempted = true;
-        heroAtlas = decodeBitmap(R.drawable.hero_side_atlas_v4, false);
+        heroAtlas = decodeBitmap(R.drawable.hero_side_atlas_v5, false);
         enemyAtlas = decodeBitmap(R.drawable.enemy_side_atlas, false);
     }
 
@@ -332,8 +346,10 @@ public final class GameView extends View {
                 accumulator -= FIXED_STEP;
                 steps++;
             }
+            renderInterpolation = RpgRules.clamp(accumulator / FIXED_STEP, 0f, 1f);
         } else {
             updateMenuEffects(frameDelta);
+            renderInterpolation = 1f;
         }
 
         renderScale = Math.min(getWidth() / LOGICAL_WIDTH, getHeight() / LOGICAL_HEIGHT);
@@ -356,12 +372,19 @@ public final class GameView extends View {
         impactFlash = Math.max(0f, impactFlash - dt * 12f);
         cameraKickX = approach(cameraKickX, 0f, 180f * dt);
         cameraKickY = approach(cameraKickY, 0f, 180f * dt);
+        cameraZoomPulse = approach(cameraZoomPulse, 0f, 2.4f * dt);
+        skillBloom = Math.max(0f, skillBloom - dt * 2.8f);
         toastTimer = Math.max(0f, toastTimer - dt);
         updateParticles(dt * 0.35f);
+        updateSkillEffects(dt * 0.35f);
         updateFloatingTexts(dt);
     }
 
     private void updateGame(float dt) {
+        hero.previousX = hero.x;
+        for (Enemy enemy : enemies) {
+            enemy.previousX = enemy.x;
+        }
         waveBannerTimer = Math.max(0f, waveBannerTimer - dt);
         levelBannerTimer = Math.max(0f, levelBannerTimer - dt);
         chapterBannerTimer = Math.max(0f, chapterBannerTimer - dt);
@@ -371,6 +394,8 @@ public final class GameView extends View {
         impactFlash = Math.max(0f, impactFlash - dt * 14f);
         cameraKickX = approach(cameraKickX, 0f, 260f * dt);
         cameraKickY = approach(cameraKickY, 0f, 230f * dt);
+        cameraZoomPulse = approach(cameraZoomPulse, 0f, 2.9f * dt);
+        skillBloom = Math.max(0f, skillBloom - dt * 3.1f);
         comboGrace = Math.max(0f, comboGrace - dt);
         comboDisplayTimer = Math.max(0f, comboDisplayTimer - dt);
         spearCooldown = Math.max(0f, spearCooldown - dt);
@@ -387,6 +412,7 @@ public final class GameView extends View {
         if (hitStop > 0f) {
             hitStop = Math.max(0f, hitStop - dt);
             updateParticles(dt * 0.2f);
+            updateSkillEffects(dt * 0.2f);
             return;
         }
 
@@ -397,6 +423,7 @@ public final class GameView extends View {
         resolveActorSpacing();
         updateProjectiles(dt);
         updateParticles(dt);
+        updateSkillEffects(dt);
         updateFloatingTexts(dt);
 
         if (!hero.dead && !waveComplete) {
@@ -553,6 +580,7 @@ public final class GameView extends View {
     }
 
     private void updateHero(float dt) {
+        hero.animClock += dt;
         hero.invulnerability = Math.max(0f, hero.invulnerability - dt);
         hero.hurtTimer = Math.max(0f, hero.hurtTimer - dt);
         if (hero.dead) {
@@ -635,15 +663,20 @@ public final class GameView extends View {
             projectile.enemyOwned = false;
             projectile.kind = 0;
             projectile.x = hero.x + hero.facing * 52f;
+            projectile.previousX = projectile.x;
             projectile.y = GROUND_Y - 112f;
             projectile.velocityX = hero.facing * 570f;
             projectile.damage = RpgRules.spearDamage(heroAttackPower, progress.spearLevel);
             projectile.life = 1.35f;
+            projectile.maxLife = projectile.life;
             projectile.radius = 42f;
             projectile.pierce = 3;
             projectile.color = CRIMSON;
             projectiles.add(projectile);
-            addBurst(projectile.x, projectile.y, CRIMSON, 16, 210f);
+            addBurst(projectile.x, projectile.y, CRIMSON, 24, 260f);
+            cameraKickX = -hero.facing * 8f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.012f);
+            skillBloom = Math.max(skillBloom, 0.36f);
             audio.playBloodSpear();
         } else if (heroAction == ACTION_SIPHON) {
             Enemy target = nearestEnemy(350f);
@@ -654,6 +687,11 @@ public final class GameView extends View {
                 heroHealth += healed;
                 heroBlood = Math.min(heroMaxBlood, heroBlood + damage * 0.22f);
                 addBloodTether(target.x, GROUND_Y - 112f, hero.x, GROUND_Y - 112f);
+                addSkillEffect(FX_SPEAR_IMPACT, target.x, GROUND_Y - 108f,
+                        hero.x, GROUND_Y - 112f, CRIMSON, 0.42f, 108f, hero.facing);
+                hitStop = Math.max(hitStop, 0.085f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.018f);
+                skillBloom = Math.max(skillBloom, 0.48f);
                 floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 230f,
                         "+" + Math.round(healed), CYAN, 1.05f));
                 audio.playSiphon();
@@ -668,8 +706,18 @@ public final class GameView extends View {
                 }
             }
             addNovaBurst(hero.x, GROUND_Y - 90f, 255f);
-            screenShake = Math.max(screenShake, 13f);
-            hitStop = hits > 0 ? 0.075f : 0.025f;
+            addSkillEffect(FX_NOVA, hero.x, GROUND_Y - 82f,
+                    hero.x, GROUND_Y - 82f, CRIMSON, 0.82f, 285f, hero.facing);
+            impactX = hero.x;
+            impactY = GROUND_Y - 88f;
+            impactDirection = hero.facing;
+            impactHeavy = true;
+            impactFlash = Math.max(impactFlash, 0.96f);
+            screenShake = Math.max(screenShake, 22f);
+            hitStop = hits > 0 ? 0.13f : 0.055f;
+            cameraKickY = -10f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.038f);
+            skillBloom = 1f;
             audio.playNova();
         }
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
@@ -707,6 +755,7 @@ public final class GameView extends View {
         enemy.kind = kind;
         // This is a side-scrolling hunt: danger always enters from the road ahead.
         enemy.x = 638f;
+        enemy.previousX = enemy.x;
         enemy.facing = enemy.x > hero.x ? -1 : 1;
         enemy.maxHealth = RpgRules.enemyMaxHealth(kind, progress.region, progress.wave,
                 progress.level, progress.chapterClears);
@@ -861,11 +910,13 @@ public final class GameView extends View {
             projectile.enemyOwned = true;
             projectile.kind = enemy.kind == RpgRules.ENEMY_BOSS ? 2 : 1;
             projectile.x = enemy.x + enemy.facing * 48f;
+            projectile.previousX = projectile.x;
             projectile.y = GROUND_Y - 108f;
             projectile.velocityX = enemy.facing
                     * (enemy.kind == RpgRules.ENEMY_BOSS ? 365f : 315f);
             projectile.damage = damage;
             projectile.life = 2.1f;
+            projectile.maxLife = projectile.life;
             projectile.radius = enemy.kind == RpgRules.ENEMY_BOSS ? 34f : 24f;
             projectile.pierce = 1;
             projectile.color = enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : VIOLET;
@@ -936,8 +987,20 @@ public final class GameView extends View {
         Iterator<Projectile> iterator = projectiles.iterator();
         while (iterator.hasNext()) {
             Projectile projectile = iterator.next();
+            projectile.previousX = projectile.x;
             projectile.x += projectile.velocityX * dt;
             projectile.life -= dt;
+            projectile.trailTimer -= dt;
+            if (!projectile.enemyOwned && projectile.kind == 0 && projectile.trailTimer <= 0f) {
+                projectile.trailTimer = 0.028f;
+                float direction = Math.signum(projectile.velocityX);
+                addStreakParticle(projectile.x - direction * 34f,
+                        projectile.y + (random.nextFloat() - 0.5f) * 24f,
+                        -direction * (75f + random.nextFloat() * 80f),
+                        (random.nextFloat() - 0.5f) * 55f,
+                        random.nextInt(5) == 0 ? GOLD : CRIMSON,
+                        3f + random.nextFloat() * 3f, 0.24f, 0f);
+            }
             boolean remove = projectile.life <= 0f
                     || projectile.x < -90f || projectile.x > LOGICAL_WIDTH + 90f;
             if (!remove && projectile.enemyOwned) {
@@ -955,6 +1018,12 @@ public final class GameView extends View {
                     if (Math.abs(projectile.x - enemy.x) <= projectile.radius + 34f) {
                         projectile.hitIds.add(enemy.id);
                         damageEnemy(enemy, projectile.damage, 115f, true);
+                        if (!projectile.enemyOwned && projectile.kind == 0) {
+                            addSkillEffect(FX_SPEAR_IMPACT, projectile.x, projectile.y,
+                                    projectile.x, projectile.y, CRIMSON,
+                                    0.34f, 92f, Math.signum(projectile.velocityX));
+                            skillBloom = Math.max(skillBloom, 0.5f);
+                        }
                         projectile.pierce--;
                         if (projectile.pierce <= 0) {
                             remove = true;
@@ -1245,6 +1314,8 @@ public final class GameView extends View {
     private void startCurrentWave(boolean fullRestore) {
         enemies.clear();
         projectiles.clear();
+        particles.clear();
+        skillEffects.clear();
         floatingTexts.clear();
         remainingToSpawn = RpgRules.waveEnemyCount(progress.region, progress.wave);
         waveTarget = remainingToSpawn;
@@ -1259,6 +1330,7 @@ public final class GameView extends View {
         hero.deadTimer = 0f;
         hero.invulnerability = 0.55f;
         hero.x = 190f;
+        hero.previousX = hero.x;
         hero.velocity = 0f;
         hero.facing = 1;
         heroAction = ACTION_NONE;
@@ -1423,6 +1495,17 @@ public final class GameView extends View {
         }
     }
 
+    private void updateSkillEffects(float dt) {
+        Iterator<SkillEffect> iterator = skillEffects.iterator();
+        while (iterator.hasNext()) {
+            SkillEffect effect = iterator.next();
+            effect.life -= dt;
+            if (effect.life <= 0f) {
+                iterator.remove();
+            }
+        }
+    }
+
     private void updateFloatingTexts(float dt) {
         Iterator<FloatingText> iterator = floatingTexts.iterator();
         while (iterator.hasNext()) {
@@ -1449,13 +1532,15 @@ public final class GameView extends View {
         for (int index = 0; index < 16 && particles.size() < MAX_PARTICLES; index++) {
             float angle = (direction > 0 ? -1.15f : 1.99f) + index * 0.095f;
             float magnitude = 175f + index * 4f;
-            addParticle(x, y, (float) Math.cos(angle) * magnitude,
+            addStreakParticle(x, y, (float) Math.cos(angle) * magnitude,
                     (float) Math.sin(angle) * magnitude, color,
                     3f + index * 0.16f, 0.26f + index * 0.012f, 70f);
         }
     }
 
     private void addBloodTether(float fromX, float fromY, float toX, float toY) {
+        addSkillEffect(FX_TETHER, fromX, fromY, toX, toY,
+                CRIMSON, 0.7f, Math.abs(toX - fromX), Math.signum(toX - fromX));
         for (int index = 0; index < 22 && particles.size() < MAX_PARTICLES; index++) {
             float fraction = index / 21f;
             float x = fromX + (toX - fromX) * fraction;
@@ -1470,7 +1555,7 @@ public final class GameView extends View {
         for (int index = 0; index < 40 && particles.size() < MAX_PARTICLES; index++) {
             float angle = index / 40f * (float) Math.PI * 2f;
             float speed = radius * (0.75f + random.nextFloat() * 0.55f);
-            addParticle(x, y, (float) Math.cos(angle) * speed,
+            addStreakParticle(x, y, (float) Math.cos(angle) * speed,
                     (float) Math.sin(angle) * speed * 0.58f,
                     index % 5 == 0 ? GOLD : CRIMSON,
                     4f + random.nextFloat() * 5f, 0.58f, 55f);
@@ -1493,7 +1578,7 @@ public final class GameView extends View {
             float angle = (random.nextFloat() - 0.5f) * 1.55f;
             float velocity = speed * (0.45f + random.nextFloat() * 0.7f);
             int color = index % 4 == 0 ? Color.WHITE : index % 5 == 0 ? GOLD : CRIMSON;
-            addParticle(x, y,
+            addStreakParticle(x, y,
                     direction * (float) Math.cos(angle) * velocity,
                     (float) Math.sin(angle) * velocity * 0.72f,
                     color, 2.5f + random.nextFloat() * 4f,
@@ -1519,6 +1604,45 @@ public final class GameView extends View {
         particles.add(particle);
     }
 
+    private void addStreakParticle(float x, float y, float velocityX, float velocityY,
+                                   int color, float radius, float life, float gravity) {
+        if (particles.size() >= MAX_PARTICLES) {
+            return;
+        }
+        Particle particle = new Particle();
+        particle.x = x;
+        particle.y = y;
+        particle.velocityX = velocityX;
+        particle.velocityY = velocityY;
+        particle.color = color;
+        particle.radius = radius;
+        particle.life = life;
+        particle.maxLife = life;
+        particle.gravity = gravity;
+        particle.style = 1;
+        particles.add(particle);
+    }
+
+    private void addSkillEffect(int kind, float x, float y, float targetX, float targetY,
+                                int color, float life, float radius, float direction) {
+        if (skillEffects.size() >= 48) {
+            return;
+        }
+        SkillEffect effect = new SkillEffect();
+        effect.kind = kind;
+        effect.x = x;
+        effect.y = y;
+        effect.targetX = targetX;
+        effect.targetY = targetY;
+        effect.color = color;
+        effect.life = life;
+        effect.maxLife = life;
+        effect.radius = radius;
+        effect.direction = direction;
+        effect.seed = random.nextFloat() * 10f;
+        skillEffects.add(effect);
+    }
+
     private void drawScene(Canvas canvas) {
         float shakeX = cameraKickX + (screenShake > 0f
                 ? (float) Math.sin(ambientClock * 84f) * screenShake : 0f);
@@ -1526,6 +1650,11 @@ public final class GameView extends View {
                 ? (float) Math.cos(ambientClock * 67f) * screenShake * 0.45f : 0f);
         canvas.save();
         canvas.translate(shakeX, shakeY);
+        if (cameraZoomPulse > 0f) {
+            float pivotX = impactX > 1f ? impactX : LOGICAL_WIDTH * 0.5f;
+            float pivotY = impactY > 1f ? impactY : GROUND_Y - 100f;
+            canvas.scale(1f + cameraZoomPulse, 1f + cameraZoomPulse, pivotX, pivotY);
+        }
         drawBackground(canvas);
         if (screen == Screen.STORY) {
             drawStoryStage(canvas);
@@ -1536,6 +1665,7 @@ public final class GameView extends View {
         }
         canvas.restore();
         drawImpactFlash(canvas);
+        drawSkillBloom(canvas);
 
         if (screen == Screen.TITLE || screen == Screen.NEW_CONFIRM) {
             drawTitle(canvas);
@@ -1565,6 +1695,21 @@ public final class GameView extends View {
             paint.setColor(Color.argb(Math.round(112f * damageFlash), 190, 8, 36));
             canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         }
+    }
+
+    private void drawSkillBloom(Canvas canvas) {
+        if (skillBloom <= 0f || screen != Screen.PLAYING) {
+            return;
+        }
+        float centerX = heroRenderX();
+        float centerY = GROUND_Y - 100f;
+        int alpha = Math.round(92f * RpgRules.clamp(skillBloom, 0f, 1f));
+        paint.setShader(new RadialGradient(centerX, centerY, 330f,
+                new int[]{withAlpha(Color.WHITE, alpha), withAlpha(CRIMSON, alpha / 2),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.26f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(centerX, centerY, 330f, paint);
+        paint.setShader(null);
     }
 
     private void drawImpactFlash(Canvas canvas) {
@@ -1686,19 +1831,21 @@ public final class GameView extends View {
 
     private void drawArena(Canvas canvas) {
         drawGroundGlow(canvas);
+        drawSkillEffects(canvas, false);
         for (Enemy enemy : enemies) {
             drawEnemyTelegraph(canvas, enemy);
         }
         for (Enemy enemy : enemies) {
-            drawFighterShadow(canvas, enemy.x, enemy.dead ? 0.3f : 0.85f,
+            drawFighterShadow(canvas, enemyRenderX(enemy), enemy.dead ? 0.3f : 0.85f,
                     enemy.kind == RpgRules.ENEMY_BOSS ? 62f : 40f);
         }
-        drawFighterShadow(canvas, hero.x, hero.dead ? 0.35f : 1f, 46f);
+        drawFighterShadow(canvas, heroRenderX(), hero.dead ? 0.35f : 1f, 46f);
         for (Enemy enemy : enemies) {
             drawEnemy(canvas, enemy);
         }
         drawHero(canvas);
         drawProjectiles(canvas);
+        drawSkillEffects(canvas, true);
         drawParticles(canvas);
         drawFloatingTexts(canvas);
         drawVignette(canvas);
@@ -1717,71 +1864,228 @@ public final class GameView extends View {
     }
 
     private void drawHero(Canvas canvas) {
-        int row;
-        int column;
+        float x = heroRenderX();
+        int firstRow = 1;
+        int firstColumn = 0;
+        int secondRow = firstRow;
+        int secondColumn = firstColumn;
+        float blend = 0f;
+        float lean = 0f;
+        float lunge = 0f;
+        float scaleX = 1f;
+        float scaleY = 1f;
+        float actionProgress = heroActionDuration <= 0f ? 0f
+                : RpgRules.clamp(1f - heroActionTimer / heroActionDuration, 0f, 1f);
         if (hero.dead) {
-            row = 3;
-            column = 3;
+            firstRow = secondRow = 3;
+            firstColumn = secondColumn = 3;
+            lean = hero.facing * 2f;
         } else if (hero.hurtTimer > 0f) {
-            row = 3;
-            column = 2;
-        } else if (heroAction != ACTION_NONE && heroAction != ACTION_ATTACK) {
-            row = 3;
-            column = heroAction == ACTION_SIPHON ? 1 : 0;
+            firstRow = secondRow = 3;
+            firstColumn = secondColumn = 2;
+            lean = -hero.facing * 7f * (hero.hurtTimer / 0.25f);
         } else if (heroAction == ACTION_ATTACK) {
-            row = 2;
-            column = comboIndex + 1;
+            if (comboIndex == 0) {
+                float contact = heroActionTrigger / Math.max(0.01f, heroActionDuration);
+                if (actionProgress < contact) {
+                    firstRow = 1;
+                    firstColumn = 0;
+                    secondRow = 2;
+                    secondColumn = 0;
+                    blend = smootherStep(actionProgress / Math.max(0.01f, contact));
+                } else {
+                    firstRow = 2;
+                    firstColumn = 0;
+                    secondRow = 2;
+                    secondColumn = 1;
+                    blend = smootherStep((actionProgress - contact)
+                            / Math.max(0.01f, 1f - contact));
+                }
+            } else if (comboIndex == 1) {
+                firstRow = secondRow = 2;
+                firstColumn = 1;
+                secondColumn = 2;
+                blend = smootherStep(actionProgress);
+            } else if (actionProgress < 0.72f) {
+                firstRow = secondRow = 2;
+                firstColumn = 2;
+                secondColumn = 3;
+                blend = smootherStep(actionProgress / 0.72f);
+            } else {
+                firstRow = 2;
+                firstColumn = 3;
+                secondRow = 1;
+                secondColumn = 0;
+                blend = smootherStep((actionProgress - 0.72f) / 0.28f);
+            }
+            float strikePulse = (float) Math.sin(Math.PI
+                    * RpgRules.clamp(actionProgress * 1.24f, 0f, 1f));
+            lunge = hero.facing * strikePulse * (comboIndex == 2 ? 24f : 16f);
+            lean = -hero.facing * (4f + strikePulse * (comboIndex == 2 ? 8f : 5f));
+            scaleX = 1f + strikePulse * 0.035f;
+            scaleY = 1f - strikePulse * 0.025f;
         } else if (hero.dashTimer > 0f) {
-            row = 1;
-            column = 3;
+            float dashProgress = RpgRules.clamp(1f - hero.dashTimer / 0.19f, 0f, 1f);
+            firstRow = secondRow = 1;
+            if (dashProgress < 0.2f) {
+                firstColumn = 0;
+                secondColumn = 1;
+                blend = smootherStep(dashProgress / 0.2f);
+            } else if (dashProgress < 0.72f) {
+                firstColumn = 1;
+                secondColumn = 2;
+                blend = smootherStep((dashProgress - 0.2f) / 0.52f);
+            } else {
+                firstColumn = 2;
+                secondColumn = 3;
+                blend = smootherStep((dashProgress - 0.72f) / 0.28f);
+            }
+            lean = -hero.facing * (8f + 4f * (float) Math.sin(dashProgress * Math.PI));
+            scaleX = 1.065f;
+            scaleY = 0.94f;
+        } else if (heroAction != ACTION_NONE) {
+            int skillColumn = heroAction == ACTION_SPEAR ? 0 : 1;
+            if (actionProgress < 0.3f) {
+                firstRow = 1;
+                firstColumn = 0;
+                secondRow = 3;
+                secondColumn = skillColumn;
+                blend = smootherStep(actionProgress / 0.3f);
+            } else if (actionProgress < 0.8f) {
+                firstRow = secondRow = 3;
+                firstColumn = secondColumn = skillColumn;
+            } else {
+                firstRow = 3;
+                firstColumn = skillColumn;
+                secondRow = 1;
+                secondColumn = 0;
+                blend = smootherStep((actionProgress - 0.8f) / 0.2f);
+            }
+            float castPulse = (float) Math.sin(Math.PI * actionProgress);
+            lean = hero.facing * (heroAction == ACTION_NOVA ? 1.5f : 3f) * castPulse;
+            scaleX = 1f - castPulse * 0.018f;
+            scaleY = 1f + castPulse * 0.028f;
         } else if (Math.abs(hero.velocity) > 24f) {
-            row = 0;
-            column = ((int) (hero.runDistance / 32f)) % 4;
+            float framePosition = hero.runDistance / 26f;
+            int baseFrame = (int) Math.floor(framePosition);
+            firstRow = secondRow = 0;
+            firstColumn = Math.floorMod(baseFrame, 4);
+            secondColumn = Math.floorMod(baseFrame + 1, 4);
+            blend = smootherStep(framePosition - (float) Math.floor(framePosition));
+            float gait = framePosition * (float) Math.PI * 0.5f;
+            scaleX = 1f + (float) Math.cos(gait * 2f) * 0.012f;
+            scaleY = 1f - (float) Math.cos(gait * 2f) * 0.012f;
+            lean = -hero.facing * 2.2f;
         } else {
-            row = 1;
-            column = 0;
+            float breath = (float) Math.sin(hero.animClock * 2.25f);
+            scaleX = 1f - breath * 0.006f;
+            scaleY = 1f + breath * 0.009f;
         }
-        boolean moving = !hero.dead && hero.dashTimer <= 0f && Math.abs(hero.velocity) > 24f;
-        // The sprite sheet already contains the body's up/down gait. Keep the feet on one
-        // world-space baseline instead of floating the whole bitmap with a sine wave.
-        float bob = !moving && heroAction == ACTION_NONE && !hero.dead
-                ? (float) Math.sin(ambientClock * 2.5f) * 0.8f : 0f;
+
+        if (heroAction == ACTION_SPEAR || heroAction == ACTION_SIPHON
+                || heroAction == ACTION_NOVA) {
+            drawHeroSkillCharge(canvas, x, actionProgress);
+        }
         float width = 198f;
         float height = 198f;
-        RectF destination = new RectF(hero.x - width * 0.5f,
-                GROUND_Y - height + 8f + bob, hero.x + width * 0.5f, GROUND_Y + 8f + bob);
+        float drawX = x + lunge;
+        spriteDestination.set(drawX - width * 0.5f,
+                GROUND_Y - height + 8f, drawX + width * 0.5f, GROUND_Y + 8f);
         int alpha = hero.invulnerability > 0f
                 && ((int) (hero.invulnerability * 32f) & 1) == 0 ? 142 : 255;
-        float lean = hero.dashTimer > 0f ? -hero.facing * 8f
-                : moving ? -hero.facing * 2.2f : 0f;
         canvas.save();
-        canvas.rotate(lean, hero.x, GROUND_Y + 5f);
+        canvas.rotate(lean, drawX, GROUND_Y + 5f);
+        canvas.scale(scaleX, scaleY, drawX, GROUND_Y + 7f);
         if (hero.dashTimer > 0f) {
             for (int trail = 4; trail >= 1; trail--) {
-                RectF trailRect = new RectF(destination);
-                trailRect.offset(-hero.facing * trail * 31f, 0f);
-                drawAtlasCell(canvas, heroAtlas, 4, 4, column, row, trailRect,
-                    hero.facing > 0, 16 + trail * 12, 4);
+                trailDestination.set(spriteDestination);
+                trailDestination.offset(-hero.facing * trail * 31f, 0f);
+                drawAtlasBlend(canvas, heroAtlas, 4, 4,
+                        firstColumn, firstRow, secondColumn, secondRow, blend,
+                        trailDestination, hero.facing > 0, 14 + trail * 10, 4);
             }
         }
-        if (heroAction == ACTION_NOVA && heroActionTimer > 0f) {
-            float fraction = 1f - heroActionTimer / heroActionDuration;
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(5f);
-            paint.setColor(withAlpha(CRIMSON, Math.round(80f + fraction * 130f)));
-            canvas.drawCircle(hero.x, GROUND_Y - 104f, 70f + fraction * 85f, paint);
-            paint.setStyle(Paint.Style.FILL);
-        }
         if (heroAtlas == null || heroAtlas.isRecycled()) {
-            drawFallbackFighter(canvas, destination, CRIMSON, alpha, hero.facing);
+            drawFallbackFighter(canvas, spriteDestination, CRIMSON, alpha, hero.facing);
         } else {
-            drawAtlasCell(canvas, heroAtlas, 4, 4, column, row, destination,
-                    hero.facing > 0, alpha, 4);
+            drawAtlasBlend(canvas, heroAtlas, 4, 4,
+                    firstColumn, firstRow, secondColumn, secondRow, blend,
+                    spriteDestination, hero.facing > 0, alpha, 4);
         }
         canvas.restore();
     }
 
+    private void drawHeroSkillCharge(Canvas canvas, float x, float progress) {
+        float triggerFraction = heroActionTrigger / Math.max(0.01f, heroActionDuration);
+        float charge = smootherStep(RpgRules.clamp(progress
+                / Math.max(0.01f, triggerFraction), 0f, 1f));
+        float release = progress <= triggerFraction ? 0f
+                : smootherStep(RpgRules.clamp((progress - triggerFraction)
+                / Math.max(0.01f, 1f - triggerFraction), 0f, 1f));
+        int color = heroAction == ACTION_SIPHON ? CYAN
+                : heroAction == ACTION_NOVA ? Color.rgb(230, 45, 91) : CRIMSON;
+        float centerX = heroAction == ACTION_SPEAR ? x + hero.facing * 74f : x;
+        float centerY = heroAction == ACTION_NOVA ? GROUND_Y - 102f : GROUND_Y - 116f;
+
+        paint.setShader(new RadialGradient(centerX, centerY,
+                42f + charge * (heroAction == ACTION_NOVA ? 112f : 48f),
+                withAlpha(Color.WHITE, Math.round(90f * charge)),
+                withAlpha(color, Math.round(78f * charge)), Shader.TileMode.CLAMP));
+        canvas.drawCircle(centerX, centerY,
+                42f + charge * (heroAction == ACTION_NOVA ? 112f : 48f), paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for (int ring = 0; ring < (heroAction == ACTION_NOVA ? 3 : 2); ring++) {
+            float radius = 34f + ring * 28f + charge * (24f + ring * 7f) - release * 12f;
+            paint.setStrokeWidth(Math.max(2f, 5f - ring));
+            paint.setColor(withAlpha(ring == 1 ? GOLD : color,
+                    Math.round((155f - ring * 28f) * charge * (1f - release * 0.55f))));
+            canvas.drawCircle(centerX, centerY, radius, paint);
+        }
+        if (heroAction == ACTION_SPEAR) {
+            for (int ray = -2; ray <= 2; ray++) {
+                float y = centerY + ray * 9f;
+                float start = centerX - hero.facing * (24f - Math.abs(ray) * 4f);
+                float end = centerX + hero.facing * (58f + charge * 46f - Math.abs(ray) * 7f);
+                paint.setStrokeWidth(ray == 0 ? 5f : 2f);
+                paint.setColor(withAlpha(ray == 0 ? Color.WHITE : CRIMSON,
+                        Math.round((ray == 0 ? 190f : 130f) * charge)));
+                canvas.drawLine(start, y, end, y, paint);
+            }
+        } else if (heroAction == ACTION_SIPHON) {
+            Enemy target = nearestEnemy(350f);
+            if (target != null) {
+                float targetX = enemyRenderX(target);
+                effectPath.reset();
+                effectPath.moveTo(targetX, GROUND_Y - 116f);
+                effectPath.cubicTo(targetX + hero.facing * 45f, GROUND_Y - 200f,
+                        x - hero.facing * 52f, GROUND_Y - 190f,
+                        x, GROUND_Y - 116f);
+                paint.setStrokeWidth(3f + charge * 3f);
+                paint.setColor(withAlpha(CRIMSON, Math.round(150f * charge)));
+                canvas.drawPath(effectPath, paint);
+            }
+        } else {
+            for (int ray = 0; ray < 12; ray++) {
+                float angle = ambientClock * 1.3f + ray * (float) Math.PI / 6f;
+                float inner = 74f + charge * 22f;
+                float outer = inner + 28f + charge * 34f;
+                paint.setStrokeWidth(ray % 3 == 0 ? 4f : 2f);
+                paint.setColor(withAlpha(ray % 3 == 0 ? GOLD : color,
+                        Math.round((ray % 3 == 0 ? 150f : 92f) * charge)));
+                canvas.drawLine(centerX + (float) Math.cos(angle) * inner,
+                        centerY + (float) Math.sin(angle) * inner * 0.7f,
+                        centerX + (float) Math.cos(angle) * outer,
+                        centerY + (float) Math.sin(angle) * outer * 0.7f, paint);
+            }
+        }
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     private void drawEnemy(Canvas canvas, Enemy enemy) {
+        float x = enemyRenderX(enemy);
         int alpha = enemy.dead
                 ? Math.round(255f * RpgRules.clamp(enemy.deadTimer
                 / (enemy.kind == RpgRules.ENEMY_BOSS ? 1.15f : 0.68f), 0f, 1f))
@@ -1794,56 +2098,80 @@ public final class GameView extends View {
         if (enemy.kind == RpgRules.ENEMY_BOSS) {
             ensureBossAtlas();
             int row = 0;
-            int column = 0;
+            int firstColumn = 0;
+            int secondColumn = 0;
+            float blend = 0f;
             if (enemy.dead) {
                 row = 2;
-                column = 3;
+                firstColumn = secondColumn = 3;
             } else if (enemy.actionTimer > 0f) {
                 row = enemy.actionType == ENEMY_MELEE || enemy.actionType == ENEMY_HEAVY ? 1 : 2;
-                column = enemy.actionTriggered ? 2 : 0;
+                float progress = 1f - enemy.actionTimer / Math.max(0.01f, enemy.actionDuration);
+                float frame = RpgRules.clamp(progress * 2.25f, 0f, 2f);
+                firstColumn = Math.min(2, (int) Math.floor(frame));
+                secondColumn = Math.min(2, firstColumn + 1);
+                blend = smootherStep(frame - (float) Math.floor(frame));
             } else if (Math.abs(enemy.velocity) > 24f) {
-                column = ((int) (enemy.runDistance / 38f)) & 1;
+                float frame = enemy.runDistance / 42f;
+                firstColumn = Math.floorMod((int) Math.floor(frame), 2);
+                secondColumn = 1 - firstColumn;
+                blend = smootherStep(frame - (float) Math.floor(frame));
             }
             float width = 270f;
             float height = 228f;
-            RectF destination = new RectF(enemy.x - width * 0.5f,
-                    GROUND_Y - height + 13f, enemy.x + width * 0.5f, GROUND_Y + 13f);
+            spriteDestination.set(x - width * 0.5f,
+                    GROUND_Y - height + 13f, x + width * 0.5f, GROUND_Y + 13f);
             canvas.save();
             if (enemy.hurtTimer > 0f) {
-                canvas.rotate(-enemy.facing * 5.5f, enemy.x, GROUND_Y + 5f);
+                canvas.rotate(-enemy.facing * 5.5f, x, GROUND_Y + 5f);
+            } else if (Math.abs(enemy.velocity) > 24f) {
+                canvas.rotate(-enemy.facing * 1.4f, x, GROUND_Y + 5f);
             }
             if (bossAtlas == null || bossAtlas.isRecycled()) {
-                drawFallbackFighter(canvas, destination, GOLD, alpha, enemy.facing);
+                drawFallbackFighter(canvas, spriteDestination, GOLD, alpha, enemy.facing);
             } else {
-                drawAtlasCell(canvas, bossAtlas, 4, 3, column, row, destination,
-                        enemy.facing > 0, alpha, 3);
+                drawAtlasBlend(canvas, bossAtlas, 4, 3,
+                        firstColumn, row, secondColumn, row, blend,
+                        spriteDestination, enemy.facing > 0, alpha, 3);
             }
             canvas.restore();
         } else {
             int row = enemy.kind;
-            int column;
+            int firstColumn;
+            int secondColumn;
+            float blend;
             if (enemy.actionTimer > 0f) {
-                column = enemy.actionTriggered ? 3 : 2;
+                float progress = 1f - enemy.actionTimer / Math.max(0.01f, enemy.actionDuration);
+                firstColumn = 2;
+                secondColumn = 3;
+                blend = smootherStep(progress);
             } else if (Math.abs(enemy.velocity) > 20f) {
-                column = ((int) (enemy.runDistance / 31f)) & 1;
+                float frame = enemy.runDistance / 36f;
+                firstColumn = Math.floorMod((int) Math.floor(frame), 2);
+                secondColumn = 1 - firstColumn;
+                blend = smootherStep(frame - (float) Math.floor(frame));
             } else {
-                column = 0;
+                firstColumn = secondColumn = 0;
+                blend = 0f;
             }
             float width = enemy.kind == RpgRules.ENEMY_WRAITH ? 186f : 176f;
             float height = enemy.kind == RpgRules.ENEMY_WRAITH ? 170f : 164f;
-            RectF destination = new RectF(enemy.x - width * 0.5f,
-                    GROUND_Y - height + 10f, enemy.x + width * 0.5f, GROUND_Y + 10f);
+            spriteDestination.set(x - width * 0.5f,
+                    GROUND_Y - height + 10f, x + width * 0.5f, GROUND_Y + 10f);
             canvas.save();
             if (enemy.hurtTimer > 0f) {
-                canvas.rotate(-enemy.facing * 8f, enemy.x, GROUND_Y + 4f);
+                canvas.rotate(-enemy.facing * 8f, x, GROUND_Y + 4f);
+            } else if (Math.abs(enemy.velocity) > 20f) {
+                canvas.rotate(-enemy.facing * 1.8f, x, GROUND_Y + 4f);
             }
             if (enemyAtlas == null || enemyAtlas.isRecycled()) {
-                drawFallbackFighter(canvas, destination,
+                drawFallbackFighter(canvas, spriteDestination,
                         enemy.kind == RpgRules.ENEMY_WRAITH ? CYAN : VIOLET,
                         alpha, enemy.facing);
             } else {
-                drawAtlasCell(canvas, enemyAtlas, 4, 3, column, row, destination,
-                        enemy.facing > 0, alpha, 3);
+                drawAtlasBlend(canvas, enemyAtlas, 4, 3,
+                        firstColumn, row, secondColumn, row, blend,
+                        spriteDestination, enemy.facing > 0, alpha, 3);
             }
             canvas.restore();
         }
@@ -1851,7 +2179,7 @@ public final class GameView extends View {
                 && (enemy.kind == RpgRules.ENEMY_BOSS || enemy.hurtTimer > 0f)) {
             float width = enemy.kind == RpgRules.ENEMY_BOSS ? 216f : 96f;
             float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 246f : GROUND_Y - 182f;
-            drawMiniHealthBar(canvas, enemy.x - width * 0.5f, y, width,
+            drawMiniHealthBar(canvas, x - width * 0.5f, y, width,
                     enemy.health / Math.max(1f, enemy.maxHealth),
                     enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : CRIMSON);
         }
@@ -1869,15 +2197,16 @@ public final class GameView extends View {
                 ? GOLD : CRIMSON;
         float radius = enemy.actionType == ENEMY_NOVA ? 255f
                 : enemy.kind == RpgRules.ENEMY_BOSS ? 88f : 58f;
+        float x = enemyRenderX(enemy);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4f + fraction * 5f);
         paint.setColor(withAlpha(color, Math.round(72f + fraction * 165f)));
-        canvas.drawCircle(enemy.x, enemy.actionType == ENEMY_NOVA
+        canvas.drawCircle(x, enemy.actionType == ENEMY_NOVA
                 ? GROUND_Y - 78f : GROUND_Y - 142f, radius * (0.78f + fraction * 0.22f), paint);
         if (enemy.actionType == ENEMY_RANGED) {
             paint.setStrokeWidth(2f);
             paint.setColor(withAlpha(color, Math.round(38f + fraction * 82f)));
-            canvas.drawLine(enemy.x, GROUND_Y - 108f, hero.x, GROUND_Y - 108f, paint);
+            canvas.drawLine(x, GROUND_Y - 108f, heroRenderX(), GROUND_Y - 108f, paint);
         }
         paint.setStyle(Paint.Style.FILL);
     }
@@ -1885,37 +2214,198 @@ public final class GameView extends View {
     private void drawProjectiles(Canvas canvas) {
         paint.setStrokeCap(Paint.Cap.ROUND);
         for (Projectile projectile : projectiles) {
+            float x = lerp(projectile.previousX, projectile.x, renderInterpolation);
             if (projectile.kind == 2) {
-                paint.setShader(new RadialGradient(projectile.x, projectile.y,
+                paint.setShader(new RadialGradient(x, projectile.y,
                         projectile.radius * 1.8f, Color.WHITE, projectile.color,
                         Shader.TileMode.CLAMP));
-                canvas.drawCircle(projectile.x, projectile.y, projectile.radius, paint);
+                canvas.drawCircle(x, projectile.y, projectile.radius, paint);
                 paint.setShader(null);
+            } else if (!projectile.enemyOwned && projectile.kind == 0) {
+                float direction = Math.signum(projectile.velocityX);
+                float pulse = 0.82f + 0.18f
+                        * (float) Math.sin((projectile.maxLife - projectile.life) * 42f);
+                paint.setShader(new RadialGradient(x, projectile.y,
+                        projectile.radius * 1.9f,
+                        withAlpha(Color.WHITE, 220), withAlpha(CRIMSON, 0),
+                        Shader.TileMode.CLAMP));
+                canvas.drawCircle(x, projectile.y, projectile.radius * 1.9f, paint);
+                paint.setShader(null);
+                for (int trail = 0; trail < 4; trail++) {
+                    float wave = (float) Math.sin(ambientClock * (18f + trail * 2f)
+                            + trail * 1.7f) * (5f + trail * 2f);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth((9f - trail * 1.6f) * pulse);
+                    paint.setColor(withAlpha(trail == 0 ? Color.WHITE
+                                    : trail == 3 ? GOLD : CRIMSON,
+                            210 - trail * 36));
+                    canvas.drawLine(x - direction * (42f + trail * 24f),
+                            projectile.y + wave,
+                            x + direction * (24f - trail * 2f), projectile.y - wave * 0.25f,
+                            paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                effectPath.reset();
+                effectPath.moveTo(x + direction * 52f, projectile.y);
+                effectPath.lineTo(x - direction * 18f, projectile.y - 17f * pulse);
+                effectPath.lineTo(x - direction * 43f, projectile.y);
+                effectPath.lineTo(x - direction * 18f, projectile.y + 17f * pulse);
+                effectPath.close();
+                paint.setColor(CRIMSON);
+                canvas.drawPath(effectPath, paint);
+                effectPath.reset();
+                effectPath.moveTo(x + direction * 43f, projectile.y);
+                effectPath.lineTo(x - direction * 11f, projectile.y - 5f);
+                effectPath.lineTo(x - direction * 26f, projectile.y);
+                effectPath.lineTo(x - direction * 11f, projectile.y + 5f);
+                effectPath.close();
+                paint.setColor(Color.WHITE);
+                canvas.drawPath(effectPath, paint);
             } else {
                 float direction = Math.signum(projectile.velocityX);
                 float length = projectile.enemyOwned ? 28f : 64f;
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(projectile.enemyOwned ? 8f : 11f);
                 paint.setColor(projectile.color);
-                canvas.drawLine(projectile.x - direction * length, projectile.y,
-                        projectile.x + direction * 12f, projectile.y, paint);
+                canvas.drawLine(x - direction * length, projectile.y,
+                        x + direction * 12f, projectile.y, paint);
                 paint.setStrokeWidth(2f);
                 paint.setColor(Color.WHITE);
-                canvas.drawLine(projectile.x - direction * length * 0.45f, projectile.y,
-                        projectile.x + direction * 8f, projectile.y, paint);
+                canvas.drawLine(x - direction * length * 0.45f, projectile.y,
+                        x + direction * 8f, projectile.y, paint);
                 paint.setStyle(Paint.Style.FILL);
             }
         }
         paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
+    private void drawSkillEffects(Canvas canvas, boolean foreground) {
+        for (SkillEffect effect : skillEffects) {
+            float progress = RpgRules.clamp(1f - effect.life / effect.maxLife, 0f, 1f);
+            float fade = 1f - smootherStep(RpgRules.clamp((progress - 0.52f) / 0.48f, 0f, 1f));
+            if (effect.kind == FX_NOVA) {
+                float expansion = smootherStep(progress);
+                float radius = effect.radius * expansion;
+                if (!foreground) {
+                    paint.setShader(new RadialGradient(effect.x, effect.y,
+                            Math.max(1f, radius),
+                            new int[]{withAlpha(Color.WHITE, Math.round(95f * fade)),
+                                    withAlpha(CRIMSON, Math.round(150f * fade)),
+                                    withAlpha(BLOOD, Math.round(55f * fade)),
+                                    Color.TRANSPARENT},
+                            new float[]{0f, 0.18f, 0.62f, 1f}, Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, effect.y, Math.max(1f, radius), paint);
+                    paint.setShader(null);
+                    paint.setColor(withAlpha(CRIMSON, Math.round(100f * fade)));
+                    effectBounds.set(effect.x - radius, GROUND_Y - 30f,
+                            effect.x + radius, GROUND_Y + 34f);
+                    canvas.drawOval(effectBounds, paint);
+                } else {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int ring = 0; ring < 3; ring++) {
+                        float ringRadius = radius * (0.56f + ring * 0.2f);
+                        paint.setStrokeWidth(9f - ring * 2f);
+                        paint.setColor(withAlpha(ring == 1 ? GOLD : CRIMSON,
+                                Math.round((215f - ring * 45f) * fade)));
+                        canvas.drawCircle(effect.x, effect.y, ringRadius, paint);
+                    }
+                    for (int ray = 0; ray < 18; ray++) {
+                        float angle = effect.seed + ray * (float) Math.PI * 2f / 18f;
+                        float inner = radius * (0.58f + (ray % 3) * 0.07f);
+                        float outer = inner + 34f + (ray % 4) * 13f;
+                        paint.setStrokeWidth(ray % 4 == 0 ? 6f : 3f);
+                        paint.setColor(withAlpha(ray % 5 == 0 ? Color.WHITE : CRIMSON,
+                                Math.round((ray % 5 == 0 ? 220f : 145f) * fade)));
+                        canvas.drawLine(effect.x + (float) Math.cos(angle) * inner,
+                                effect.y + (float) Math.sin(angle) * inner * 0.62f,
+                                effect.x + (float) Math.cos(angle) * outer,
+                                effect.y + (float) Math.sin(angle) * outer * 0.62f, paint);
+                    }
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (foreground && effect.kind == FX_TETHER) {
+                float dx = effect.targetX - effect.x;
+                float direction = dx == 0f ? 1f : Math.signum(dx);
+                for (int strand = 0; strand < 4; strand++) {
+                    float wave = (float) Math.sin(progress * 18f + effect.seed + strand * 1.8f)
+                            * (16f + strand * 4f);
+                    float control1X = effect.x + dx * 0.32f;
+                    float control2X = effect.x + dx * 0.7f;
+                    float control1Y = effect.y - 45f - wave;
+                    float control2Y = effect.targetY - 34f + wave;
+                    effectPath.reset();
+                    effectPath.moveTo(effect.x, effect.y);
+                    effectPath.cubicTo(control1X, control1Y,
+                            control2X, control2Y, effect.targetX, effect.targetY);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    paint.setStrokeWidth(strand == 0 ? 8f : 2.5f + strand * 0.55f);
+                    paint.setColor(withAlpha(strand == 0 ? Color.WHITE
+                                    : strand == 1 ? CYAN : CRIMSON,
+                            Math.round((210f - strand * 28f) * fade)));
+                    canvas.drawPath(effectPath, paint);
+                    for (int drop = 0; drop < 3; drop++) {
+                        float t = (progress * (1.5f + strand * 0.12f)
+                                + drop * 0.29f + strand * 0.09f) % 1f;
+                        float px = cubicBezier(effect.x, control1X, control2X, effect.targetX, t);
+                        float py = cubicBezier(effect.y, control1Y, control2Y, effect.targetY, t);
+                        paint.setStyle(Paint.Style.FILL);
+                        paint.setColor(withAlpha(drop == 0 ? Color.WHITE : CRIMSON,
+                                Math.round(220f * fade)));
+                        canvas.drawCircle(px + direction * strand, py, 4.5f - drop * 0.7f, paint);
+                    }
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+            } else if (foreground && effect.kind == FX_SPEAR_IMPACT) {
+                float radius = effect.radius * (0.28f + smootherStep(progress) * 0.72f);
+                paint.setShader(new RadialGradient(effect.x, effect.y, radius,
+                        withAlpha(Color.WHITE, Math.round(210f * fade)),
+                        withAlpha(effect.color, 0), Shader.TileMode.CLAMP));
+                canvas.drawCircle(effect.x, effect.y, radius, paint);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setStrokeWidth(7f * fade + 1f);
+                paint.setColor(withAlpha(effect.color, Math.round(230f * fade)));
+                canvas.drawCircle(effect.x, effect.y, radius * 0.76f, paint);
+                for (int ray = -3; ray <= 3; ray++) {
+                    float angle = ray * 0.22f;
+                    float dx = effect.direction * (float) Math.cos(angle) * radius;
+                    float dy = (float) Math.sin(angle) * radius * 0.7f;
+                    canvas.drawLine(effect.x + dx * 0.22f, effect.y + dy * 0.22f,
+                            effect.x + dx, effect.y + dy, paint);
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+            }
+        }
+    }
+
     private void drawParticles(Canvas canvas) {
+        paint.setStrokeCap(Paint.Cap.ROUND);
         for (Particle particle : particles) {
             float fraction = RpgRules.clamp(particle.life / particle.maxLife, 0f, 1f);
             paint.setColor(withAlpha(particle.color, Math.round(255f * fraction)));
-            canvas.drawCircle(particle.x, particle.y,
-                    particle.radius * (0.35f + fraction * 0.65f), paint);
+            if (particle.style == 1) {
+                float speed = (float) Math.sqrt(particle.velocityX * particle.velocityX
+                        + particle.velocityY * particle.velocityY);
+                float inverse = speed <= 0.01f ? 0f : 1f / speed;
+                float length = Math.min(34f, 7f + speed * 0.055f) * fraction;
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1.2f, particle.radius * fraction));
+                canvas.drawLine(particle.x, particle.y,
+                        particle.x - particle.velocityX * inverse * length,
+                        particle.y - particle.velocityY * inverse * length, paint);
+                paint.setStyle(Paint.Style.FILL);
+            } else {
+                canvas.drawCircle(particle.x, particle.y,
+                        particle.radius * (0.35f + fraction * 0.65f), paint);
+            }
         }
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawFloatingTexts(Canvas canvas) {
@@ -2214,7 +2704,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.2.0 DEMO  ·  INVENTORY", 360f, 1120f, textPaint);
+        canvas.drawText("v4.3.0 DEMO  ·  MOTION REBUILD", 360f, 1120f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -2690,6 +3180,35 @@ public final class GameView extends View {
         paint.setShader(null);
     }
 
+    private float heroRenderX() {
+        return lerp(hero.previousX, hero.x, renderInterpolation);
+    }
+
+    private float enemyRenderX(Enemy enemy) {
+        return lerp(enemy.previousX, enemy.x, renderInterpolation);
+    }
+
+    private void drawAtlasBlend(Canvas canvas, Bitmap atlas, int columns, int rows,
+                                int firstColumn, int firstRow,
+                                int secondColumn, int secondRow, float blend,
+                                RectF destination, boolean flip, int alpha, int inset) {
+        float easedBlend = RpgRules.clamp(blend, 0f, 1f);
+        if (firstColumn == secondColumn && firstRow == secondRow || easedBlend <= 0.015f) {
+            drawAtlasCell(canvas, atlas, columns, rows, firstColumn, firstRow,
+                    destination, flip, alpha, inset);
+            return;
+        }
+        if (easedBlend >= 0.985f) {
+            drawAtlasCell(canvas, atlas, columns, rows, secondColumn, secondRow,
+                    destination, flip, alpha, inset);
+            return;
+        }
+        drawAtlasCell(canvas, atlas, columns, rows, firstColumn, firstRow,
+                destination, flip, Math.round(alpha * (1f - easedBlend)), inset);
+        drawAtlasCell(canvas, atlas, columns, rows, secondColumn, secondRow,
+                destination, flip, Math.round(alpha * easedBlend), inset);
+    }
+
     private void drawAtlasCell(Canvas canvas, Bitmap atlas, int columns, int rows,
                                int column, int row, RectF destination, boolean flip,
                                int alpha, int inset) {
@@ -2702,16 +3221,16 @@ public final class GameView extends View {
         int top = Math.round(safeRow * atlas.getHeight() / (float) rows) + inset;
         int right = Math.round((safeColumn + 1) * atlas.getWidth() / (float) columns) - inset;
         int bottom = Math.round((safeRow + 1) * atlas.getHeight() / (float) rows) - inset;
-        Rect source = new Rect(left, top, right, bottom);
+        atlasSource.set(left, top, right, bottom);
         paint.setAlpha(Math.max(0, Math.min(255, alpha)));
         paint.setColorFilter(null);
         if (flip) {
             canvas.save();
             canvas.scale(-1f, 1f, destination.centerX(), destination.centerY());
-            canvas.drawBitmap(atlas, source, destination, paint);
+            canvas.drawBitmap(atlas, atlasSource, destination, paint);
             canvas.restore();
         } else {
-            canvas.drawBitmap(atlas, source, destination, paint);
+            canvas.drawBitmap(atlas, atlasSource, destination, paint);
         }
         paint.setAlpha(255);
     }
@@ -3131,6 +3650,25 @@ public final class GameView extends View {
         return Math.max(target, value - amount);
     }
 
+    private static float lerp(float from, float to, float amount) {
+        return from + (to - from) * RpgRules.clamp(amount, 0f, 1f);
+    }
+
+    private static float smootherStep(float value) {
+        float t = RpgRules.clamp(value, 0f, 1f);
+        return t * t * t * (t * (t * 6f - 15f) + 10f);
+    }
+
+    private static float cubicBezier(float start, float control1, float control2,
+                                     float end, float value) {
+        float t = RpgRules.clamp(value, 0f, 1f);
+        float inverse = 1f - t;
+        return inverse * inverse * inverse * start
+                + 3f * inverse * inverse * t * control1
+                + 3f * inverse * t * t * control2
+                + t * t * t * end;
+    }
+
     private static int withAlpha(int color, int alpha) {
         return Color.argb(Math.max(0, Math.min(255, alpha)),
                 Color.red(color), Color.green(color), Color.blue(color));
@@ -3184,11 +3722,13 @@ public final class GameView extends View {
 
     private static final class Hero {
         float x;
+        float previousX;
         float velocity;
         float invulnerability;
         float hurtTimer;
         float dashTimer;
         float runDistance;
+        float animClock;
         float deadTimer;
         int facing;
         int lastFootstep;
@@ -3196,11 +3736,13 @@ public final class GameView extends View {
 
         void reset(float startX, int startFacing) {
             x = startX;
+            previousX = startX;
             velocity = 0f;
             invulnerability = 0f;
             hurtTimer = 0f;
             dashTimer = 0f;
             runDistance = 0f;
+            animClock = 0f;
             deadTimer = 0f;
             facing = startFacing;
             lastFootstep = 0;
@@ -3214,6 +3756,7 @@ public final class GameView extends View {
         int facing;
         int actionType;
         float x;
+        float previousX;
         float velocity;
         float health;
         float maxHealth;
@@ -3235,9 +3778,12 @@ public final class GameView extends View {
     private static final class Projectile {
         final List<Integer> hitIds = new ArrayList<>();
         float x;
+        float previousX;
         float y;
         float velocityX;
         float life;
+        float maxLife;
+        float trailTimer;
         float radius;
         int kind;
         int damage;
@@ -3256,6 +3802,21 @@ public final class GameView extends View {
         float life;
         float maxLife;
         int color;
+        int style;
+    }
+
+    private static final class SkillEffect {
+        int kind;
+        int color;
+        float x;
+        float y;
+        float targetX;
+        float targetY;
+        float radius;
+        float direction;
+        float life;
+        float maxLife;
+        float seed;
     }
 
     private static final class FloatingText {

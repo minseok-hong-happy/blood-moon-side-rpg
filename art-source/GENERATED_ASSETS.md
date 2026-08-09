@@ -8,7 +8,8 @@
 - `raw/enemy-atlas-chroma.png` → `processed/enemy-atlas-alpha.png`: 4×3 혈귀·사냥꾼·망령 포즈
 - `raw/boss-atlas-chroma.png` → `processed/boss-atlas-alpha.png`: 4×3 태양의 심판관 기본·공격·2페이즈 포즈
 - `raw/world-objects-chroma.png` → `processed/world-objects-alpha.png`: 4×3 예배당·성소·나무·폐허·제단·성문·기둥·상자·울타리·석상·플랫폼·바리케이드
-- `generated/hero-side-atlas-v4-chroma.png` → `app/src/main/res/drawable-nodpi/hero_side_atlas_v4.png`: 카엘 아르덴의 4×4 자동 달리기·대시·3연격·혈술 포즈
+- `generated/hero-side-atlas-v4-chroma.png`: v4에서 사용한 카엘 아르덴의 4×4 자동 달리기·대시·3연격·혈술 원본
+- `generated/hero-side-atlas-v5-chroma.png` → `app/src/main/res/drawable-nodpi/hero_side_atlas_v5.png`: 동일한 발 기준선과 연속 자세를 강화한 4×4 모션 재구축 포즈
 
 스프라이트는 순수 녹색(`#00FF00`) 배경으로 생성한 뒤, 이미지 생성 스킬의 크로마키 도구로 소프트 매트·디스필을 적용했습니다.
 
@@ -26,6 +27,10 @@
 ### v4 카엘 스프라이트 프롬프트 요약
 
 `style-transfer` 용도의 4×4 Android 전투 스프라이트. 기존 시트의 동작 순서와 셀 배치를 유지하되, 은빛 머리와 청백색 눈, 남색 전투 코트, 진홍 혈검을 지닌 독자적 뱀파이어 카엘로 통일한다. 모든 프레임의 신체 비율·의상·무기·발 기준선을 고정하고 달리기는 접지/하강/교차/상승의 4단계로 구성한다. 또렷한 각진 선화, 평면 셀 채색, 2단계 그림자, 절제된 청백 림라이트와 진홍 혈술. 기존 작품의 캐릭터·복장·상징·대표 포즈를 복제하지 않는다. 녹색 크로마키 배경, 텍스트·워터마크·배경·그림자 제외.
+
+### v5 카엘 모션 프롬프트 요약
+
+`stylized-concept` 용도의 4×4 Android 전투 스프라이트. v4 캐릭터를 외형 참조로 사용해 백발의 성인 남성 뱀파이어, 남흑색 장식 코트와 진홍 안감, 혈검, 셀 채색을 모든 셀에서 유지한다. 1행은 좌우 발 접지·하강·교차·상승의 달리기 순환, 2행은 호흡·대시 준비·이동·제동, 3행은 준비·1타·역방향 2타·강한 마무리, 4행은 혈창·흡혈·피격·무릎 꿇기다. 정확한 측면 시점, 동일 크기, 동일 발 기준선, 셀 간 겹침과 분리된 이펙트 없음. 균일한 `#00FF00` 크로마 배경, 텍스트·워터마크·3D·그림자 제외. 처리본에는 소프트 매트·디스필·1픽셀 가장자리 수축을 적용한다.
 
 ### 세로형 결투장 생성 프롬프트 요약
 
