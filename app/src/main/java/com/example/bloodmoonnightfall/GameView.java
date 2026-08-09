@@ -60,12 +60,28 @@ public final class GameView extends View {
     private static final int ACTION_NOVA = 4;
     private static final int ACTION_RUSH = 5;
     private static final int ACTION_RAIN = 6;
+    private static final int ACTION_CHAIN = 7;
+    private static final int ACTION_PILLAR = 8;
+    private static final int ACTION_ECLIPSE = 9;
 
     private static final int FX_TETHER = 1;
     private static final int FX_NOVA = 2;
     private static final int FX_SPEAR_IMPACT = 3;
     private static final int FX_RUSH = 4;
     private static final int FX_RAIN = 5;
+    private static final int FX_CHAIN = 6;
+    private static final int FX_PILLAR = 7;
+    private static final int FX_ECLIPSE = 8;
+
+    private static final int ICON_DASH = 0;
+    private static final int ICON_SPEAR = 1;
+    private static final int ICON_SIPHON = 2;
+    private static final int ICON_NOVA = 3;
+    private static final int ICON_RUSH = 4;
+    private static final int ICON_RAIN = 5;
+    private static final int ICON_CHAIN = 6;
+    private static final int ICON_PILLAR = 7;
+    private static final int ICON_ECLIPSE = 8;
 
     private static final int ENEMY_MELEE = 1;
     private static final int ENEMY_HEAVY = 2;
@@ -208,6 +224,9 @@ public final class GameView extends View {
     private float novaCooldown;
     private float rushCooldown;
     private float rainCooldown;
+    private float chainCooldown;
+    private float pillarCooldown;
+    private float eclipseCooldown;
     private float autoSkillThinkTimer;
 
     private int remainingToSpawn;
@@ -432,6 +451,9 @@ public final class GameView extends View {
         novaCooldown = Math.max(0f, novaCooldown - dt);
         rushCooldown = Math.max(0f, rushCooldown - dt);
         rainCooldown = Math.max(0f, rainCooldown - dt);
+        chainCooldown = Math.max(0f, chainCooldown - dt);
+        pillarCooldown = Math.max(0f, pillarCooldown - dt);
+        eclipseCooldown = Math.max(0f, eclipseCooldown - dt);
         autoSkillThinkTimer = Math.max(0f, autoSkillThinkTimer - dt);
         queuedSkillTimer = Math.max(0f, queuedSkillTimer - dt);
         if (queuedSkillTimer <= 0f) {
@@ -543,6 +565,16 @@ public final class GameView extends View {
             return ACTION_NONE;
         }
         int nearbyEnemies = aliveEnemyCountWithin(285f);
+        if (progress.level >= 15 && eclipseCooldown <= 0f
+                && (nearbyEnemies >= 3 || target.kind == RpgRules.ENEMY_BOSS)) {
+            return ACTION_ECLIPSE;
+        }
+        if (progress.level >= 12 && pillarCooldown <= 0f && nearbyEnemies >= 2) {
+            return ACTION_PILLAR;
+        }
+        if (progress.level >= 9 && chainCooldown <= 0f) {
+            return ACTION_CHAIN;
+        }
         if (progress.level >= 7 && progress.novaLevel > 0 && novaCooldown <= 0f
                 && heroBlood >= 55f
                 && (nearbyEnemies >= 2 || target.kind == RpgRules.ENEMY_BOSS)) {
@@ -598,6 +630,12 @@ public final class GameView extends View {
             tryStartRush();
         } else if (action == ACTION_RAIN) {
             tryStartRain();
+        } else if (action == ACTION_CHAIN) {
+            tryStartChain();
+        } else if (action == ACTION_PILLAR) {
+            tryStartPillar();
+        } else if (action == ACTION_ECLIPSE) {
+            tryStartEclipse();
         }
     }
 
@@ -620,6 +658,18 @@ public final class GameView extends View {
         }
         if (queuedSkillAction == ACTION_RAIN) {
             return progress.level >= 6 && rainCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_CHAIN) {
+            return progress.level >= 9 && chainCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_PILLAR) {
+            return progress.level >= 12 && pillarCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_ECLIPSE) {
+            return progress.level >= 15 && eclipseCooldown <= 0f
                     && nearestEnemy(620f) != null;
         }
         return false;
@@ -736,6 +786,36 @@ public final class GameView extends View {
         hero.facing = target.x >= hero.x ? 1 : -1;
         rainCooldown = 6.2f;
         startHeroSkill(ACTION_RAIN, 0.48f, 0.13f);
+    }
+
+    private void tryStartChain() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 9 || chainCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        chainCooldown = 5.2f;
+        startHeroSkill(ACTION_CHAIN, 0.42f, 0.105f);
+    }
+
+    private void tryStartPillar() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 12 || pillarCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        pillarCooldown = 8.4f;
+        startHeroSkill(ACTION_PILLAR, 0.54f, 0.16f);
+    }
+
+    private void tryStartEclipse() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 15 || eclipseCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        eclipseCooldown = 13.5f;
+        startHeroSkill(ACTION_ECLIPSE, 0.68f, 0.22f);
     }
 
     private void startHeroSkill(int action, float duration, float trigger) {
@@ -940,6 +1020,85 @@ public final class GameView extends View {
                 skillBloom = Math.max(skillBloom, 0.82f);
                 audio.playBloodSpear();
             }
+        } else if (heroAction == ACTION_CHAIN) {
+            int hits = 0;
+            float fromX = hero.x;
+            float fromY = GROUND_Y - 118f;
+            int damage = RpgRules.bloodChainDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (enemy.dead || enemy.spawnTimer > 0.18f
+                        || Math.abs(enemy.x - hero.x) > 620f || hits >= 4) {
+                    continue;
+                }
+                float targetX = enemy.x;
+                float targetY = GROUND_Y - 112f;
+                addSkillEffect(FX_CHAIN, fromX, fromY, targetX, targetY,
+                        CYAN, 0.52f, Math.abs(targetX - fromX), hero.facing);
+                damageEnemy(enemy, damage, 72f, hits == 3);
+                addImpactBurst(targetX, targetY, targetX >= fromX ? 1f : -1f,
+                        14, 255f);
+                fromX = targetX;
+                fromY = targetY;
+                hits++;
+            }
+            if (hits > 0) {
+                heroBlood = Math.min(heroMaxBlood, heroBlood + hits * 5f);
+                hitStop = Math.max(hitStop, 0.045f);
+                skillBloom = Math.max(skillBloom, 0.72f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.016f);
+                audio.playChain();
+            }
+        } else if (heroAction == ACTION_PILLAR) {
+            int hits = 0;
+            int damage = RpgRules.crimsonPillarDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (enemy.dead || enemy.spawnTimer > 0.18f
+                        || Math.abs(enemy.x - hero.x) > 640f) {
+                    continue;
+                }
+                addSkillEffect(FX_PILLAR, enemy.x, GROUND_Y - 44f,
+                        enemy.x, GROUND_Y - 300f, CRIMSON,
+                        0.68f, 190f, hero.facing);
+                damageEnemy(enemy, damage, 150f, true);
+                addNovaBurst(enemy.x, GROUND_Y - 60f, 132f);
+                hits++;
+            }
+            if (hits > 0) {
+                impactX = hero.x;
+                impactY = GROUND_Y - 105f;
+                impactFlash = Math.max(impactFlash, 0.82f);
+                hitStop = Math.max(hitStop, 0.065f);
+                screenShake = Math.max(screenShake, 5.5f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.02f);
+                skillBloom = Math.max(skillBloom, 0.9f);
+                audio.playPillar();
+            }
+        } else if (heroAction == ACTION_ECLIPSE) {
+            int hits = 0;
+            int damage = RpgRules.eclipseDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (!enemy.dead && enemy.spawnTimer <= 0.18f) {
+                    damageEnemy(enemy, damage, 230f, true);
+                    addImpactBurst(enemy.x, GROUND_Y - 112f,
+                            enemy.x >= hero.x ? 1f : -1f, 22, 350f);
+                    hits++;
+                }
+            }
+            addSkillEffect(FX_ECLIPSE, hero.x, GROUND_Y - 300f,
+                    hero.x, GROUND_Y - 300f, Color.rgb(245, 53, 104),
+                    1.05f, 560f, hero.facing);
+            addNovaBurst(hero.x, GROUND_Y - 94f, 430f);
+            impactX = hero.x;
+            impactY = GROUND_Y - 220f;
+            impactDirection = hero.facing;
+            impactHeavy = true;
+            impactFlash = 1f;
+            hitStop = hits > 0 ? 0.11f : 0.045f;
+            screenShake = Math.max(screenShake, 6f);
+            cameraKickY = -4f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.026f);
+            skillBloom = 1f;
+            audio.playEclipse();
         }
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
@@ -1366,6 +1525,7 @@ public final class GameView extends View {
     }
 
     private void gainLevels() {
+        int previousLevel = progress.level;
         boolean leveled = false;
         while (progress.level < RpgRules.LEVEL_CAP
                 && progress.xp >= RpgRules.xpForNextLevel(progress.level)) {
@@ -1384,7 +1544,17 @@ public final class GameView extends View {
             heroHealth = Math.min(heroMaxHealth, heroHealth + heroMaxHealth * 0.38f);
             heroBlood = heroMaxBlood;
             levelBannerText = "LEVEL UP  ·  " + progress.level;
-            if (previousSiphon == 0 && progress.siphonLevel > 0) {
+            if (previousLevel < 15 && progress.level >= 15) {
+                levelBannerText = "개기월식 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 12 && progress.level >= 12) {
+                levelBannerText = "진홍기둥 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 9 && progress.level >= 9) {
+                levelBannerText = "혈사슬 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 6 && progress.level >= 6) {
+                levelBannerText = "적월검우 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 3 && progress.level >= 3) {
+                levelBannerText = "혈영쇄도 해금  ·  LEVEL " + progress.level;
+            } else if (previousSiphon == 0 && progress.siphonLevel > 0) {
                 levelBannerText = "흡혈 해금  ·  LEVEL " + progress.level;
             } else if (previousNova == 0 && progress.novaLevel > 0) {
                 levelBannerText = "혈월 폭발 해금  ·  LEVEL " + progress.level;
@@ -1535,6 +1705,9 @@ public final class GameView extends View {
         novaCooldown = 0f;
         rushCooldown = 0f;
         rainCooldown = 0f;
+        chainCooldown = 0f;
+        pillarCooldown = 0f;
+        eclipseCooldown = 0f;
         autoSkillThinkTimer = 0f;
         worldTravel = 0f;
         openStory(progress.region, true, false);
@@ -2332,7 +2505,9 @@ public final class GameView extends View {
         }
 
         if (heroAction == ACTION_SPEAR || heroAction == ACTION_SIPHON
-                || heroAction == ACTION_NOVA || heroAction == ACTION_RAIN) {
+                || heroAction == ACTION_NOVA || heroAction == ACTION_RAIN
+                || heroAction == ACTION_CHAIN || heroAction == ACTION_PILLAR
+                || heroAction == ACTION_ECLIPSE) {
             drawHeroSkillCharge(canvas, x, actionProgress);
         }
         float width = 152f;
@@ -2376,22 +2551,28 @@ public final class GameView extends View {
         float release = progress <= triggerFraction ? 0f
                 : smootherStep(RpgRules.clamp((progress - triggerFraction)
                 / Math.max(0.01f, 1f - triggerFraction), 0f, 1f));
-        int color = heroAction == ACTION_SIPHON ? CYAN
+        int color = heroAction == ACTION_SIPHON || heroAction == ACTION_CHAIN ? CYAN
                 : heroAction == ACTION_RAIN ? GOLD
+                : heroAction == ACTION_PILLAR ? Color.rgb(255, 74, 76)
+                : heroAction == ACTION_ECLIPSE ? Color.rgb(212, 76, 242)
                 : heroAction == ACTION_NOVA ? Color.rgb(230, 45, 91) : CRIMSON;
         float centerX = heroAction == ACTION_SPEAR ? x + hero.facing * 74f : x;
-        float centerY = heroAction == ACTION_NOVA ? GROUND_Y - 102f : GROUND_Y - 116f;
+        float centerY = heroAction == ACTION_NOVA || heroAction == ACTION_ECLIPSE
+                ? GROUND_Y - 102f : GROUND_Y - 116f;
 
         paint.setShader(new RadialGradient(centerX, centerY,
-                42f + charge * (heroAction == ACTION_NOVA ? 112f : 48f),
+                42f + charge * (heroAction == ACTION_NOVA || heroAction == ACTION_ECLIPSE
+                        ? 132f : 58f),
                 withAlpha(Color.WHITE, Math.round(90f * charge)),
                 withAlpha(color, Math.round(78f * charge)), Shader.TileMode.CLAMP));
         canvas.drawCircle(centerX, centerY,
-                42f + charge * (heroAction == ACTION_NOVA ? 112f : 48f), paint);
+                42f + charge * (heroAction == ACTION_NOVA || heroAction == ACTION_ECLIPSE
+                        ? 132f : 58f), paint);
         paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
-        for (int ring = 0; ring < (heroAction == ACTION_NOVA ? 3 : 2); ring++) {
+        for (int ring = 0; ring < (heroAction == ACTION_NOVA
+                || heroAction == ACTION_ECLIPSE ? 4 : 2); ring++) {
             float radius = 34f + ring * 28f + charge * (24f + ring * 7f) - release * 12f;
             paint.setStrokeWidth(Math.max(2f, 5f - ring));
             paint.setColor(withAlpha(ring == 1 ? GOLD : color,
@@ -2755,6 +2936,137 @@ public final class GameView extends View {
                     paint.setStrokeCap(Paint.Cap.BUTT);
                     paint.setStyle(Paint.Style.FILL);
                 }
+            } else if (effect.kind == FX_CHAIN) {
+                float pulse = 0.72f + (float) Math.sin(progress * 34f + effect.seed) * 0.28f;
+                float dx = effect.targetX - effect.x;
+                float dy = effect.targetY - effect.y;
+                if (!foreground) {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    paint.setStrokeWidth(26f * fade);
+                    paint.setColor(withAlpha(CYAN, Math.round(42f * fade)));
+                    canvas.drawLine(effect.x, effect.y, effect.targetX, effect.targetY, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                } else {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int strand = 0; strand < 4; strand++) {
+                        effectPath.reset();
+                        effectPath.moveTo(effect.x, effect.y);
+                        for (int segment = 1; segment <= 9; segment++) {
+                            float t = segment / 9f;
+                            float normalX = -dy;
+                            float normalY = dx;
+                            float inverseLength = 1f / Math.max(1f,
+                                    (float) Math.sqrt(normalX * normalX + normalY * normalY));
+                            float jitter = (float) Math.sin(segment * 4.7f
+                                    + strand * 2.3f + effect.seed * 5f) * (12f - strand * 2f);
+                            effectPath.lineTo(effect.x + dx * t + normalX * inverseLength * jitter,
+                                    effect.y + dy * t + normalY * inverseLength * jitter);
+                        }
+                        paint.setStrokeWidth(strand == 0 ? 7f * pulse : 2.5f);
+                        paint.setColor(withAlpha(strand == 0 ? Color.WHITE
+                                        : strand == 1 ? CYAN : CRIMSON,
+                                Math.round((strand == 0 ? 235f : 165f) * fade)));
+                        canvas.drawPath(effectPath, paint);
+                    }
+                    float nodeRadius = 16f + progress * 38f;
+                    paint.setStrokeWidth(4f);
+                    paint.setColor(withAlpha(GOLD, Math.round(205f * fade)));
+                    canvas.drawCircle(effect.targetX, effect.targetY, nodeRadius, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (effect.kind == FX_PILLAR) {
+                float rise = easeOutCubic(RpgRules.clamp(progress * 1.8f, 0f, 1f));
+                float width = 46f + rise * 86f;
+                if (!foreground) {
+                    paint.setShader(new RadialGradient(effect.x, GROUND_Y - 54f,
+                            170f, withAlpha(Color.WHITE, Math.round(125f * fade)),
+                            withAlpha(CRIMSON, 0), Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, GROUND_Y - 54f, 170f, paint);
+                    paint.setShader(null);
+                    paint.setColor(withAlpha(BLOOD, Math.round(145f * fade)));
+                    effectBounds.set(effect.x - width, GROUND_Y - 28f,
+                            effect.x + width, GROUND_Y + 34f);
+                    canvas.drawOval(effectBounds, paint);
+                } else {
+                    for (int column = -2; column <= 2; column++) {
+                        float columnX = effect.x + column * width * 0.34f;
+                        float topY = GROUND_Y - 82f - rise * (330f + Math.abs(column) * 36f);
+                        effectPath.reset();
+                        effectPath.moveTo(columnX - width * 0.2f, GROUND_Y - 42f);
+                        effectPath.lineTo(columnX - width * 0.06f, topY);
+                        effectPath.lineTo(columnX + width * 0.18f, GROUND_Y - 42f);
+                        effectPath.close();
+                        paint.setColor(withAlpha(column == 0 ? Color.WHITE
+                                        : column % 2 == 0 ? GOLD : CRIMSON,
+                                Math.round((column == 0 ? 205f : 150f) * fade)));
+                        canvas.drawPath(effectPath, paint);
+                    }
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(5f * fade + 1f);
+                    for (int ring = 0; ring < 3; ring++) {
+                        float ringWidth = 62f + rise * (76f + ring * 34f);
+                        effectBounds.set(effect.x - ringWidth, GROUND_Y - 66f - ring * 7f,
+                                effect.x + ringWidth, GROUND_Y + 20f + ring * 7f);
+                        paint.setColor(withAlpha(ring == 1 ? GOLD : CRIMSON,
+                                Math.round((210f - ring * 48f) * fade)));
+                        canvas.drawOval(effectBounds, paint);
+                    }
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (effect.kind == FX_ECLIPSE) {
+                float expansion = easeOutCubic(progress);
+                float moonRadius = 76f + expansion * 142f;
+                if (!foreground) {
+                    paint.setShader(new RadialGradient(effect.x, effect.y,
+                            Math.max(1f, effect.radius * expansion),
+                            new int[]{withAlpha(Color.WHITE, Math.round(90f * fade)),
+                                    withAlpha(Color.rgb(231, 32, 83), Math.round(150f * fade)),
+                                    withAlpha(Color.rgb(83, 18, 112), Math.round(88f * fade)),
+                                    Color.TRANSPARENT},
+                            new float[]{0f, 0.12f, 0.48f, 1f}, Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, effect.y,
+                            Math.max(1f, effect.radius * expansion), paint);
+                    paint.setShader(null);
+                } else {
+                    paint.setColor(withAlpha(Color.rgb(4, 3, 11), Math.round(245f * fade)));
+                    canvas.drawCircle(effect.x, effect.y, moonRadius * 0.72f, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int ring = 0; ring < 6; ring++) {
+                        paint.setStrokeWidth(Math.max(2f, 10f - ring * 1.35f));
+                        paint.setColor(withAlpha(ring % 3 == 1 ? GOLD
+                                        : ring % 2 == 0 ? Color.WHITE : effect.color,
+                                Math.round((225f - ring * 27f) * fade)));
+                        canvas.drawCircle(effect.x, effect.y,
+                                moonRadius * (0.78f + ring * 0.13f), paint);
+                    }
+                    for (int ray = 0; ray < 36; ray++) {
+                        float angle = effect.seed + progress * 2.6f
+                                + ray * (float) Math.PI * 2f / 36f;
+                        float inner = moonRadius * (1.02f + (ray % 3) * 0.08f);
+                        float outer = inner + 58f + (ray % 5) * 18f;
+                        paint.setStrokeWidth(ray % 6 == 0 ? 7f : 2.5f);
+                        paint.setColor(withAlpha(ray % 6 == 0 ? Color.WHITE
+                                        : ray % 4 == 0 ? GOLD : effect.color,
+                                Math.round((ray % 6 == 0 ? 225f : 145f) * fade)));
+                        canvas.drawLine(effect.x + (float) Math.cos(angle) * inner,
+                                effect.y + (float) Math.sin(angle) * inner,
+                                effect.x + (float) Math.cos(angle) * outer,
+                                effect.y + (float) Math.sin(angle) * outer, paint);
+                    }
+                    float groundWidth = 190f + expansion * 410f;
+                    effectBounds.set(effect.x - groundWidth, GROUND_Y - 76f,
+                            effect.x + groundWidth, GROUND_Y + 52f);
+                    paint.setStrokeWidth(8f * fade + 1f);
+                    paint.setColor(withAlpha(CRIMSON, Math.round(220f * fade)));
+                    canvas.drawOval(effectBounds, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
             } else if (foreground && effect.kind == FX_TETHER) {
                 float dx = effect.targetX - effect.x;
                 float direction = dx == 0f ? 1f : Math.signum(dx);
@@ -2951,25 +3263,26 @@ public final class GameView extends View {
         textPaint.setColor(CYAN);
         canvas.drawText("AUTO BATTLE  ●  자동 추격 · 기본 공격 · 혈술 연계", 360f, 1009f, textPaint);
 
-        textPaint.setTypeface(uiBoldTypeface);
-        textPaint.setTextSize(13f);
-        textPaint.setColor(Color.rgb(190, 198, 216));
-        String rushState = progress.level < 3 ? "Lv.3 해금"
-                : rushCooldown <= 0f ? "READY" : oneDecimal(rushCooldown) + "s";
-        String rainState = progress.level < 6 ? "Lv.6 해금"
-                : rainCooldown <= 0f ? "READY" : oneDecimal(rainCooldown) + "s";
-        canvas.drawText("자동 혈술  ·  혈영쇄도 " + rushState
-                + "  /  적월검우 " + rainState, 360f, 1057f, textPaint);
+        drawAutoSkillChip(canvas, 82f, 1058f, ICON_RUSH, "쇄도",
+                progress.level >= 3, rushCooldown, Color.rgb(222, 43, 83));
+        drawAutoSkillChip(canvas, 221f, 1058f, ICON_RAIN, "검우",
+                progress.level >= 6, rainCooldown, GOLD);
+        drawAutoSkillChip(canvas, 360f, 1058f, ICON_CHAIN, "사슬",
+                progress.level >= 9, chainCooldown, CYAN);
+        drawAutoSkillChip(canvas, 499f, 1058f, ICON_PILLAR, "기둥",
+                progress.level >= 12, pillarCooldown, Color.rgb(255, 88, 75));
+        drawAutoSkillChip(canvas, 638f, 1058f, ICON_ECLIPSE, "월식",
+                progress.level >= 15, eclipseCooldown, VIOLET);
 
-        drawControlButton(canvas, 92f, 1130f, 57f, "✦", "개입 대시", false,
+        drawControlButton(canvas, 92f, 1130f, 57f, ICON_DASH, "개입 대시", false,
                 0f, true, Color.rgb(70, 83, 112));
-        drawControlButton(canvas, 292f, 1130f, 60f, "血", "혈창 20",
+        drawControlButton(canvas, 292f, 1130f, 60f, ICON_SPEAR, "혈창 20",
                 queuedSkillAction == ACTION_SPEAR,
                 spearCooldown / 0.9f, true, Color.rgb(154, 24, 58));
-        drawControlButton(canvas, 463f, 1130f, 60f, "吸", "흡혈 30",
+        drawControlButton(canvas, 463f, 1130f, 60f, ICON_SIPHON, "흡혈 30",
                 queuedSkillAction == ACTION_SIPHON,
                 siphonCooldown / 4.8f, progress.level >= 4, Color.rgb(38, 119, 144));
-        drawControlButton(canvas, 630f, 1130f, 60f, "月", "폭발 55",
+        drawControlButton(canvas, 630f, 1130f, 60f, ICON_NOVA, "폭발 55",
                 queuedSkillAction == ACTION_NOVA,
                 novaCooldown / 7.5f, progress.level >= 7, Color.rgb(115, 53, 149));
 
@@ -2982,7 +3295,7 @@ public final class GameView extends View {
     }
 
     private void drawControlButton(Canvas canvas, float x, float y, float radius,
-                                   String symbol, String label, boolean pressed,
+                                   int icon, String label, boolean pressed,
                                    float cooldownFraction, boolean enabled, int color) {
         float scale = pressed ? 0.93f : 1f;
         paint.setColor(Color.argb(100, 0, 0, 0));
@@ -3002,13 +3315,124 @@ public final class GameView extends View {
             canvas.drawArc(new RectF(x - radius, y - radius, x + radius, y + radius),
                     -90f, 360f * RpgRules.clamp(cooldownFraction, 0f, 1f), true, paint);
         }
-        textPaint.setTypeface(uiBoldTypeface);
-        textPaint.setTextSize(radius > 60f ? 31f : 25f);
-        textPaint.setColor(enabled ? Color.WHITE : Color.rgb(115, 118, 129));
-        canvas.drawText(symbol, x, y + 8f, textPaint);
+        drawSkillIcon(canvas, icon, x, y, radius * 0.58f,
+                enabled ? Color.WHITE : Color.rgb(115, 118, 129));
         textPaint.setTextSize(14f);
         textPaint.setColor(enabled ? Color.rgb(226, 229, 238) : Color.rgb(110, 112, 121));
         canvas.drawText(label, x, y + radius + 19f, textPaint);
+    }
+
+    private void drawAutoSkillChip(Canvas canvas, float x, float y, int icon,
+                                   String label, boolean unlocked, float cooldown, int color) {
+        RectF bounds = new RectF(x - 62f, y - 22f, x + 62f, y + 22f);
+        paint.setColor(Color.argb(unlocked ? 205 : 145, 10, 14, 25));
+        canvas.drawRoundRect(bounds, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.8f);
+        paint.setColor(withAlpha(unlocked ? color : Color.rgb(86, 91, 105), 165));
+        canvas.drawRoundRect(bounds, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        drawSkillIcon(canvas, icon, x - 37f, y, 14f,
+                unlocked ? color : Color.rgb(92, 97, 109));
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(13f);
+        textPaint.setColor(unlocked ? Color.rgb(225, 229, 238) : Color.rgb(113, 117, 128));
+        String state = !unlocked ? "LOCK" : cooldown <= 0f ? "AUTO" : oneDecimal(cooldown);
+        canvas.drawText(label, x - 15f, y - 2f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(9f);
+        textPaint.setColor(unlocked ? color : Color.rgb(102, 106, 118));
+        canvas.drawText(state, x - 15f, y + 13f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawSkillIcon(Canvas canvas, int icon, float x, float y,
+                               float size, int color) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeWidth(Math.max(2f, size * 0.13f));
+        paint.setColor(color);
+        if (icon == ICON_DASH) {
+            for (int wing = -1; wing <= 1; wing++) {
+                float offset = wing * size * 0.34f;
+                canvas.drawLine(x - size * 0.72f, y + offset,
+                        x - size * 0.12f, y, paint);
+                canvas.drawLine(x - size * 0.12f, y,
+                        x + size * 0.72f, y + offset, paint);
+            }
+        } else if (icon == ICON_SPEAR) {
+            canvas.drawLine(x - size * 0.72f, y + size * 0.58f,
+                    x + size * 0.64f, y - size * 0.58f, paint);
+            effectPath.reset();
+            effectPath.moveTo(x + size * 0.64f, y - size * 0.58f);
+            effectPath.lineTo(x + size * 0.12f, y - size * 0.43f);
+            effectPath.lineTo(x + size * 0.48f, y - size * 0.06f);
+            effectPath.close();
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawPath(effectPath, paint);
+        } else if (icon == ICON_SIPHON) {
+            effectPath.reset();
+            effectPath.moveTo(x, y - size * 0.76f);
+            effectPath.cubicTo(x - size * 0.62f, y - size * 0.12f,
+                    x - size * 0.48f, y + size * 0.7f, x, y + size * 0.72f);
+            effectPath.cubicTo(x + size * 0.48f, y + size * 0.7f,
+                    x + size * 0.62f, y - size * 0.12f, x, y - size * 0.76f);
+            canvas.drawPath(effectPath, paint);
+            canvas.drawLine(x - size * 0.62f, y - size * 0.58f,
+                    x - size * 0.27f, y - size * 0.18f, paint);
+            canvas.drawLine(x + size * 0.62f, y - size * 0.58f,
+                    x + size * 0.27f, y - size * 0.18f, paint);
+        } else if (icon == ICON_NOVA || icon == ICON_ECLIPSE) {
+            canvas.drawCircle(x, y, size * 0.48f, paint);
+            int rays = icon == ICON_ECLIPSE ? 10 : 8;
+            for (int ray = 0; ray < rays; ray++) {
+                float angle = ray * (float) Math.PI * 2f / rays;
+                canvas.drawLine(x + (float) Math.cos(angle) * size * 0.66f,
+                        y + (float) Math.sin(angle) * size * 0.66f,
+                        x + (float) Math.cos(angle) * size * 0.88f,
+                        y + (float) Math.sin(angle) * size * 0.88f, paint);
+            }
+            if (icon == ICON_ECLIPSE) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(darken(color, 0.2f));
+                canvas.drawCircle(x + size * 0.18f, y - size * 0.08f, size * 0.31f, paint);
+            }
+        } else if (icon == ICON_RUSH) {
+            for (int slash = -1; slash <= 1; slash++) {
+                float offset = slash * size * 0.34f;
+                canvas.drawLine(x - size * 0.68f, y + size * 0.52f + offset,
+                        x + size * 0.68f, y - size * 0.52f + offset, paint);
+            }
+        } else if (icon == ICON_RAIN) {
+            for (int blade = -1; blade <= 1; blade++) {
+                float offset = blade * size * 0.48f;
+                canvas.drawLine(x + offset - size * 0.28f, y - size * 0.7f,
+                        x + offset + size * 0.18f, y + size * 0.58f, paint);
+                canvas.drawLine(x + offset + size * 0.18f, y + size * 0.58f,
+                        x + offset - size * 0.08f, y + size * 0.37f, paint);
+            }
+        } else if (icon == ICON_CHAIN) {
+            effectBounds.set(x - size * 0.75f, y - size * 0.42f,
+                    x + size * 0.05f, y + size * 0.42f);
+            canvas.drawOval(effectBounds, paint);
+            effectBounds.set(x - size * 0.05f, y - size * 0.42f,
+                    x + size * 0.75f, y + size * 0.42f);
+            canvas.drawOval(effectBounds, paint);
+        } else if (icon == ICON_PILLAR) {
+            for (int flame = -1; flame <= 1; flame++) {
+                float offset = flame * size * 0.42f;
+                effectPath.reset();
+                effectPath.moveTo(x + offset - size * 0.22f, y + size * 0.72f);
+                effectPath.lineTo(x + offset, y - size * (flame == 0 ? 0.82f : 0.5f));
+                effectPath.lineTo(x + offset + size * 0.22f, y + size * 0.72f);
+                canvas.drawPath(effectPath, paint);
+            }
+        }
+        paint.setStrokeJoin(Paint.Join.MITER);
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawBar(Canvas canvas, float x, float y, float width, float height,
@@ -3147,7 +3571,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.7.0 DEMO  ·  AFK REWARDS", 360f, 1120f, textPaint);
+        canvas.drawText("v4.8.0 DEMO  ·  BLOOD ARTS", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {
@@ -3385,7 +3809,7 @@ public final class GameView extends View {
         canvas.drawText("혈석  +" + progress.relicPower + " 혈기", 468f, 1008f, textPaint);
         textPaint.setTextSize(14f);
         textPaint.setColor(Color.rgb(142, 151, 171));
-        canvas.drawText("자동 혈술: Lv.3 혈영쇄도 · Lv.6 적월검우", 72f, 1045f, textPaint);
+        canvas.drawText("자동 혈술: 쇄도 · 검우 · 사슬 · 기둥 · 개기월식", 72f, 1045f, textPaint);
         textPaint.setTextAlign(Paint.Align.CENTER);
         drawMenuButton(canvas, growthCloseButton,
                 growthReturnScreen == Screen.PAUSED ? "일시정지로" : "전투로 복귀", true);

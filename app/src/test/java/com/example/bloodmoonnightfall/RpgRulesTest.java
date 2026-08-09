@@ -38,6 +38,14 @@ public final class RpgRulesTest {
                 > RpgRules.bladeRainDamage(attack, 6));
         assertTrue(RpgRules.rushDamage(attack, 3) > attack);
         assertTrue(RpgRules.bladeRainDamage(attack, 6) > attack);
+        assertTrue(RpgRules.bloodChainDamage(attack, 20)
+                > RpgRules.bloodChainDamage(attack, 9));
+        assertTrue(RpgRules.crimsonPillarDamage(attack, 20)
+                > RpgRules.crimsonPillarDamage(attack, 12));
+        assertTrue(RpgRules.eclipseDamage(attack, 20)
+                > RpgRules.eclipseDamage(attack, 15));
+        assertTrue(RpgRules.eclipseDamage(attack, 15)
+                > RpgRules.crimsonPillarDamage(attack, 15));
     }
 
     @Test

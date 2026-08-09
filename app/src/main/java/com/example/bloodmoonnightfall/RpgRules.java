@@ -81,6 +81,21 @@ public final class RpgRules {
                 * (1.08f + clamp(heroLevel, 6, LEVEL_CAP) * 0.014f)));
     }
 
+    public static int bloodChainDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.18f + clamp(heroLevel, 9, LEVEL_CAP) * 0.016f)));
+    }
+
+    public static int crimsonPillarDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.48f + clamp(heroLevel, 12, LEVEL_CAP) * 0.019f)));
+    }
+
+    public static int eclipseDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (2.15f + clamp(heroLevel, 15, LEVEL_CAP) * 0.024f)));
+    }
+
     public static float recoveryPerSecond(int recoveryLevel) {
         return 0.65f + clamp(recoveryLevel, 0, UPGRADE_CAP) * 0.22f;
     }

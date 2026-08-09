@@ -78,6 +78,21 @@ final class GameAudio {
         play(nova, 0.94f, 7, 0.92f);
     }
 
+    void playChain() {
+        play(siphon, 0.82f, 6, 1.16f);
+        play(hitLight, 0.55f, 5, 1.08f);
+    }
+
+    void playPillar() {
+        play(bloodSpear, 0.9f, 7, 0.78f);
+        play(hitHeavy, 0.74f, 6, 0.86f);
+    }
+
+    void playEclipse() {
+        play(nova, 1f, 9, 0.78f);
+        play(bloodSpear, 0.72f, 8, 0.66f);
+    }
+
     void playPlayerHurt() {
         play(playerHurt, 0.84f, 6, 0.94f + random.nextFloat() * 0.05f);
     }
