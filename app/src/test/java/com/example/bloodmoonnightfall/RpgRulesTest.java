@@ -31,6 +31,16 @@ public final class RpgRulesTest {
     }
 
     @Test
+    public void automaticBloodArtsScaleWithGrowth() {
+        int attack = 30;
+        assertTrue(RpgRules.rushDamage(attack, 20) > RpgRules.rushDamage(attack, 3));
+        assertTrue(RpgRules.bladeRainDamage(attack, 20)
+                > RpgRules.bladeRainDamage(attack, 6));
+        assertTrue(RpgRules.rushDamage(attack, 3) > attack);
+        assertTrue(RpgRules.bladeRainDamage(attack, 6) > attack);
+    }
+
+    @Test
     public void armorNeverCreatesZeroDamageFromAHit() {
         assertEquals(0, RpgRules.mitigateDamage(0, 300));
         assertTrue(RpgRules.mitigateDamage(5, 300) >= 1);

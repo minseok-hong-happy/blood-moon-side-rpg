@@ -70,6 +70,16 @@ public final class RpgRules {
                 * (1.55f + clamp(skillLevel, 1, 12) * 0.16f)));
     }
 
+    public static int rushDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.28f + clamp(heroLevel, 3, LEVEL_CAP) * 0.018f)));
+    }
+
+    public static int bladeRainDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.08f + clamp(heroLevel, 6, LEVEL_CAP) * 0.014f)));
+    }
+
     public static float recoveryPerSecond(int recoveryLevel) {
         return 0.65f + clamp(recoveryLevel, 0, UPGRADE_CAP) * 0.22f;
     }

@@ -10,7 +10,7 @@ Set-StrictMode -Version Latest
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $safeBase = Join-Path $env:LOCALAPPDATA 'BloodMoonNightfall'
 $stageRoot = Join-Path $safeBase 'release-stage'
-$versionName = '4.4.0-demo'
+$versionName = '4.5.0-demo'
 $apkFileName = "BloodMoon-Nightfall-v$versionName.apk"
 $expectedSignerSha256 = '41B6CCB282C142826227EB6D0B6108E5A8F78FC2CFF08E845B9458B2F08FA99D'
 
@@ -130,14 +130,19 @@ if (Test-Path -LiteralPath $checksumPath) {
 $checksumLines += "$hash  $apkFileName"
 [IO.File]::WriteAllLines($checksumPath, $checksumLines, $utf8NoBom)
 
-$releaseNotesPath = Join-Path $dist "RELEASE_NOTES-v$versionName.md"
-if (Test-Path -LiteralPath $releaseNotesPath) {
-    $releaseNotes = [IO.File]::ReadAllText($releaseNotesPath)
-    $releaseNotes = [Regex]::Replace(
-        $releaseNotes,
-        '(?m)^- SHA-256: `[A-Fa-f0-9]{64}`$',
-        "- SHA-256: ``$hash``")
-    [IO.File]::WriteAllText($releaseNotesPath, $releaseNotes, $utf8NoBom)
+$releaseMetadataPaths = @(
+    (Join-Path $dist "RELEASE_NOTES-v$versionName.md"),
+    (Join-Path $dist "QA-v$versionName.md")
+)
+foreach ($metadataPath in $releaseMetadataPaths) {
+    if (Test-Path -LiteralPath $metadataPath) {
+        $metadata = [IO.File]::ReadAllText($metadataPath)
+        $metadata = [Regex]::Replace(
+            $metadata,
+            '(?m)^- (?:APK )?SHA-256: `[A-Fa-f0-9]{64}`$',
+            "- APK SHA-256: ``$hash``")
+        [IO.File]::WriteAllText($metadataPath, $metadata, $utf8NoBom)
+    }
 }
 
 $desktopPath = [Environment]::GetFolderPath('Desktop')

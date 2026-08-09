@@ -45,10 +45,14 @@ public final class GameView extends View {
     private static final int ACTION_SPEAR = 2;
     private static final int ACTION_SIPHON = 3;
     private static final int ACTION_NOVA = 4;
+    private static final int ACTION_RUSH = 5;
+    private static final int ACTION_RAIN = 6;
 
     private static final int FX_TETHER = 1;
     private static final int FX_NOVA = 2;
     private static final int FX_SPEAR_IMPACT = 3;
+    private static final int FX_RUSH = 4;
+    private static final int FX_RAIN = 5;
 
     private static final int ENEMY_MELEE = 1;
     private static final int ENEMY_HEAVY = 2;
@@ -187,6 +191,9 @@ public final class GameView extends View {
     private float spearCooldown;
     private float siphonCooldown;
     private float novaCooldown;
+    private float rushCooldown;
+    private float rainCooldown;
+    private float autoSkillThinkTimer;
 
     private int remainingToSpawn;
     private int waveTarget;
@@ -403,6 +410,9 @@ public final class GameView extends View {
         spearCooldown = Math.max(0f, spearCooldown - dt);
         siphonCooldown = Math.max(0f, siphonCooldown - dt);
         novaCooldown = Math.max(0f, novaCooldown - dt);
+        rushCooldown = Math.max(0f, rushCooldown - dt);
+        rainCooldown = Math.max(0f, rainCooldown - dt);
+        autoSkillThinkTimer = Math.max(0f, autoSkillThinkTimer - dt);
         queuedSkillTimer = Math.max(0f, queuedSkillTimer - dt);
         if (queuedSkillTimer <= 0f) {
             queuedSkillAction = ACTION_NONE;
@@ -474,6 +484,13 @@ public final class GameView extends View {
         if (novaPressed) {
             bufferSkill(ACTION_NOVA);
         }
+        if (queuedSkillAction == ACTION_NONE && autoSkillThinkTimer <= 0f) {
+            autoSkillThinkTimer = 0.16f;
+            int automaticAction = chooseAutomaticSkill();
+            if (automaticAction != ACTION_NONE) {
+                bufferSkill(automaticAction);
+            }
+        }
         if (dashPressed && (heroAction == ACTION_NONE || heroAction == ACTION_ATTACK)) {
             startDash();
         }
@@ -493,11 +510,53 @@ public final class GameView extends View {
             Enemy target = nearestEnemy(1000f);
             if (target != null) {
                 hero.facing = target.x >= hero.x ? 1 : -1;
-                if (Math.abs(target.x - hero.x) <= 132f) {
+                if (Math.abs(target.x - hero.x) <= 225f) {
                     startAttack(comboGrace > 0f ? (comboIndex + 1) % 3 : 0);
                 }
             }
         }
+    }
+
+    private int chooseAutomaticSkill() {
+        Enemy target = nearestEnemy(620f);
+        if (target == null) {
+            return ACTION_NONE;
+        }
+        int nearbyEnemies = aliveEnemyCountWithin(285f);
+        if (progress.level >= 7 && progress.novaLevel > 0 && novaCooldown <= 0f
+                && heroBlood >= 55f
+                && (nearbyEnemies >= 2 || target.kind == RpgRules.ENEMY_BOSS)) {
+            return ACTION_NOVA;
+        }
+        if (progress.level >= 6 && rainCooldown <= 0f) {
+            return ACTION_RAIN;
+        }
+        if (progress.level >= 4 && progress.siphonLevel > 0 && siphonCooldown <= 0f
+                && heroBlood >= 30f && heroHealth <= heroMaxHealth * 0.82f
+                && Math.abs(target.x - hero.x) <= 350f) {
+            return ACTION_SIPHON;
+        }
+        if (progress.level >= 3 && rushCooldown <= 0f) {
+            return ACTION_RUSH;
+        }
+        float automaticSpearThreshold = progress.level >= 7 ? 75f
+                : progress.level >= 4 ? 50f : 20f;
+        if (spearCooldown <= 0f && heroBlood >= automaticSpearThreshold
+                && Math.abs(target.x - hero.x) <= 520f) {
+            return ACTION_SPEAR;
+        }
+        return ACTION_NONE;
+    }
+
+    private int aliveEnemyCountWithin(float radius) {
+        int count = 0;
+        for (Enemy enemy : enemies) {
+            if (!enemy.dead && enemy.spawnTimer <= 0.18f
+                    && Math.abs(enemy.x - hero.x) <= radius) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void bufferSkill(int action) {
@@ -515,6 +574,10 @@ public final class GameView extends View {
             tryStartSiphon();
         } else if (action == ACTION_NOVA) {
             tryStartNova();
+        } else if (action == ACTION_RUSH) {
+            tryStartRush();
+        } else if (action == ACTION_RAIN) {
+            tryStartRain();
         }
     }
 
@@ -530,6 +593,14 @@ public final class GameView extends View {
         if (queuedSkillAction == ACTION_NOVA) {
             return progress.level >= 7 && progress.novaLevel > 0
                     && novaCooldown <= 0f && heroBlood >= 55f;
+        }
+        if (queuedSkillAction == ACTION_RUSH) {
+            return progress.level >= 3 && rushCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_RAIN) {
+            return progress.level >= 6 && rainCooldown <= 0f
+                    && nearestEnemy(620f) != null;
         }
         return false;
     }
@@ -559,6 +630,10 @@ public final class GameView extends View {
         Enemy target = nearestEnemy(230f);
         if (target != null) {
             hero.facing = target.x >= hero.x ? 1 : -1;
+            if (Math.abs(target.x - hero.x) > 72f) {
+                float drive = comboIndex == 2 ? 430f : 380f;
+                hero.velocity = hero.facing * Math.max(Math.abs(hero.velocity), drive);
+            }
         }
     }
 
@@ -577,7 +652,7 @@ public final class GameView extends View {
         }
         heroBlood -= 20f;
         spearCooldown = 0.9f;
-        startHeroSkill(ACTION_SPEAR, 0.38f, 0.11f);
+        startHeroSkill(ACTION_SPEAR, 0.32f, 0.085f);
     }
 
     private void tryStartSiphon() {
@@ -601,7 +676,7 @@ public final class GameView extends View {
         hero.facing = target.x >= hero.x ? 1 : -1;
         heroBlood -= 30f;
         siphonCooldown = 4.8f;
-        startHeroSkill(ACTION_SIPHON, 0.49f, 0.15f);
+        startHeroSkill(ACTION_SIPHON, 0.42f, 0.12f);
     }
 
     private void tryStartNova() {
@@ -619,7 +694,28 @@ public final class GameView extends View {
         }
         heroBlood -= 55f;
         novaCooldown = 7.5f;
-        startHeroSkill(ACTION_NOVA, 0.64f, 0.22f);
+        startHeroSkill(ACTION_NOVA, 0.52f, 0.17f);
+    }
+
+    private void tryStartRush() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 3 || rushCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        rushCooldown = 3.6f;
+        hero.velocity = hero.facing * 680f;
+        startHeroSkill(ACTION_RUSH, 0.34f, 0.08f);
+    }
+
+    private void tryStartRain() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 6 || rainCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        rainCooldown = 6.2f;
+        startHeroSkill(ACTION_RAIN, 0.48f, 0.13f);
     }
 
     private void startHeroSkill(int action, float duration, float trigger) {
@@ -672,20 +768,25 @@ public final class GameView extends View {
             }
         } else {
             float movementMultiplier = heroAction == ACTION_NONE ? 1f
-                    : heroAction == ACTION_ATTACK ? 0.62f : 0.16f;
+                    : heroAction == ACTION_ATTACK ? 1.32f
+                    : heroAction == ACTION_RUSH ? 1.85f : 0.24f;
             Enemy target = nearestEnemy(1000f);
             float desired = 0f;
             if (target == null) {
                 desired = remainingToSpawn > 0 ? 1f : 0f;
             } else {
                 float gap = target.x - hero.x;
-                if (Math.abs(gap) > 112f) {
+                float stopDistance = heroAction == ACTION_ATTACK ? 68f
+                        : heroAction == ACTION_RUSH ? 54f : 104f;
+                if (Math.abs(gap) > stopDistance) {
                     desired = gap > 0f ? 1f : -1f;
                 }
                 hero.facing = gap >= 0f ? 1 : -1;
             }
-            float targetVelocity = desired * 218f * movementMultiplier;
-            hero.velocity = approach(hero.velocity, targetVelocity, 1050f * dt);
+            float targetVelocity = desired * 278f * movementMultiplier;
+            float acceleration = heroAction == ACTION_ATTACK || heroAction == ACTION_RUSH
+                    ? 1900f : 1320f;
+            hero.velocity = approach(hero.velocity, targetVelocity, acceleration * dt);
             hero.x += hero.velocity * dt;
             hero.runDistance += Math.abs(hero.velocity) * dt;
             worldTravel += Math.max(0f, hero.velocity) * dt;
@@ -700,7 +801,7 @@ public final class GameView extends View {
 
     private void executeHeroAction() {
         if (heroAction == ACTION_ATTACK) {
-            Enemy target = nearestEnemy(132f + comboIndex * 8f);
+            Enemy target = nearestEnemy(205f + comboIndex * 10f);
             if (target != null && faces(hero.x, hero.facing, target.x)) {
                 int damage = RpgRules.meleeDamage(heroAttackPower, comboIndex);
                 damageEnemy(target, damage, 95f + comboIndex * 52f, comboIndex == 2);
@@ -718,18 +819,18 @@ public final class GameView extends View {
             projectile.x = hero.x + hero.facing * 52f;
             projectile.previousX = projectile.x;
             projectile.y = GROUND_Y - 112f;
-            projectile.velocityX = hero.facing * 570f;
+            projectile.velocityX = hero.facing * 920f;
             projectile.damage = RpgRules.spearDamage(heroAttackPower, progress.spearLevel);
-            projectile.life = 1.35f;
+            projectile.life = 0.88f;
             projectile.maxLife = projectile.life;
-            projectile.radius = 42f;
+            projectile.radius = 46f;
             projectile.pierce = 3;
             projectile.color = CRIMSON;
             projectiles.add(projectile);
-            addBurst(projectile.x, projectile.y, CRIMSON, 24, 260f);
-            cameraKickX = -hero.facing * 8f;
-            cameraZoomPulse = Math.max(cameraZoomPulse, 0.012f);
-            skillBloom = Math.max(skillBloom, 0.36f);
+            addBurst(projectile.x, projectile.y, CRIMSON, 32, 345f);
+            cameraKickX = -hero.facing * 4f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.008f);
+            skillBloom = Math.max(skillBloom, 0.48f);
             audio.playBloodSpear();
         } else if (heroAction == ACTION_SIPHON) {
             Enemy target = nearestEnemy(350f);
@@ -741,7 +842,7 @@ public final class GameView extends View {
                 heroBlood = Math.min(heroMaxBlood, heroBlood + damage * 0.22f);
                 addBloodTether(target.x, GROUND_Y - 112f, hero.x, GROUND_Y - 112f);
                 addSkillEffect(FX_SPEAR_IMPACT, target.x, GROUND_Y - 108f,
-                        hero.x, GROUND_Y - 112f, CRIMSON, 0.42f, 108f, hero.facing);
+                        hero.x, GROUND_Y - 112f, CRIMSON, 0.32f, 126f, hero.facing);
                 hitStop = Math.max(hitStop, 0.055f);
                 cameraZoomPulse = Math.max(cameraZoomPulse, 0.018f);
                 skillBloom = Math.max(skillBloom, 0.48f);
@@ -758,20 +859,67 @@ public final class GameView extends View {
                     hits++;
                 }
             }
-            addNovaBurst(hero.x, GROUND_Y - 90f, 255f);
+            addNovaBurst(hero.x, GROUND_Y - 90f, 310f);
             addSkillEffect(FX_NOVA, hero.x, GROUND_Y - 82f,
-                    hero.x, GROUND_Y - 82f, CRIMSON, 0.82f, 285f, hero.facing);
+                    hero.x, GROUND_Y - 82f, CRIMSON, 0.56f, 330f, hero.facing);
             impactX = hero.x;
             impactY = GROUND_Y - 88f;
             impactDirection = hero.facing;
             impactHeavy = true;
             impactFlash = Math.max(impactFlash, 0.96f);
-            screenShake = Math.max(screenShake, 22f);
+            screenShake = Math.max(screenShake, 6f);
             hitStop = hits > 0 ? 0.09f : 0.035f;
-            cameraKickY = -10f;
-            cameraZoomPulse = Math.max(cameraZoomPulse, 0.038f);
+            cameraKickY = -3f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.018f);
             skillBloom = 1f;
             audio.playNova();
+        } else if (heroAction == ACTION_RUSH) {
+            Enemy target = nearestEnemy(620f);
+            if (target != null) {
+                float startX = hero.x;
+                hero.facing = target.x >= hero.x ? 1 : -1;
+                float destination = target.x - hero.facing * 62f;
+                hero.x = RpgRules.clamp(destination,
+                        RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
+                hero.previousX = startX;
+                hero.velocity = hero.facing * 410f;
+                addSkillEffect(FX_RUSH, startX, GROUND_Y - 104f,
+                        target.x, GROUND_Y - 104f, CRIMSON,
+                        0.36f, Math.abs(target.x - startX), hero.facing);
+                damageEnemy(target, RpgRules.rushDamage(heroAttackPower, progress.level),
+                        135f, true);
+                addSlashArc(target.x, GROUND_Y - 104f, hero.facing, Color.WHITE);
+                addSlashArc(target.x - hero.facing * 24f,
+                        GROUND_Y - 126f, hero.facing, CRIMSON);
+                addImpactBurst(target.x, GROUND_Y - 104f,
+                        hero.facing, 28, 390f);
+                skillBloom = Math.max(skillBloom, 0.62f);
+                audio.playDash();
+            }
+        } else if (heroAction == ACTION_RAIN) {
+            int hits = 0;
+            int damage = RpgRules.bladeRainDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (enemy.dead || enemy.spawnTimer > 0.18f) {
+                    continue;
+                }
+                addSkillEffect(FX_RAIN, enemy.x, GROUND_Y - 112f,
+                        enemy.x, GROUND_Y - 112f, CRIMSON,
+                        0.54f, 148f, hero.facing);
+                damageEnemy(enemy, damage, 92f, true);
+                addBladeRainBurst(enemy.x, GROUND_Y - 108f);
+                hits++;
+            }
+            if (hits > 0) {
+                impactX = hero.x;
+                impactY = GROUND_Y - 110f;
+                impactFlash = Math.max(impactFlash, 0.7f);
+                screenShake = Math.max(screenShake, 5f);
+                hitStop = Math.max(hitStop, 0.038f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.015f);
+                skillBloom = Math.max(skillBloom, 0.82f);
+                audio.playBloodSpear();
+            }
         }
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
@@ -1045,7 +1193,7 @@ public final class GameView extends View {
             projectile.life -= dt;
             projectile.trailTimer -= dt;
             if (!projectile.enemyOwned && projectile.kind == 0 && projectile.trailTimer <= 0f) {
-                projectile.trailTimer = 0.028f;
+                projectile.trailTimer = 0.018f;
                 float direction = Math.signum(projectile.velocityX);
                 addStreakParticle(projectile.x - direction * 34f,
                         projectile.y + (random.nextFloat() - 0.5f) * 24f,
@@ -1103,7 +1251,8 @@ public final class GameView extends View {
         float direction = enemy.x >= hero.x ? 1f : -1f;
         enemy.velocity += direction * knockback * (killed ? 1.32f : heavy ? 1.18f : 1f);
         if (heroAction == ACTION_ATTACK) {
-            hero.velocity -= direction * (heavy ? 42f : 24f);
+            float followThrough = comboIndex == 2 ? 390f : 325f;
+            hero.velocity = direction * Math.max(Math.abs(hero.velocity), followThrough);
         }
         floatingTexts.add(new FloatingText(enemy.x, GROUND_Y - 210f,
                 "-" + applied, heavy ? GOLD : Color.WHITE, 0.9f));
@@ -1325,6 +1474,9 @@ public final class GameView extends View {
         spearCooldown = 0f;
         siphonCooldown = 0f;
         novaCooldown = 0f;
+        rushCooldown = 0f;
+        rainCooldown = 0f;
+        autoSkillThinkTimer = 0f;
         worldTravel = 0f;
         openStory(progress.region, true, false);
     }
@@ -1389,6 +1541,7 @@ public final class GameView extends View {
         heroAction = ACTION_NONE;
         queuedSkillAction = ACTION_NONE;
         queuedSkillTimer = 0f;
+        autoSkillThinkTimer = 0.12f;
         comboQueued = false;
         if (fullRestore) {
             heroHealth = heroMaxHealth;
@@ -1595,7 +1748,7 @@ public final class GameView extends View {
 
     private void addBloodTether(float fromX, float fromY, float toX, float toY) {
         addSkillEffect(FX_TETHER, fromX, fromY, toX, toY,
-                CRIMSON, 0.7f, Math.abs(toX - fromX), Math.signum(toX - fromX));
+                CRIMSON, 0.48f, Math.abs(toX - fromX), Math.signum(toX - fromX));
         for (int index = 0; index < 22 && particles.size() < MAX_PARTICLES; index++) {
             float fraction = index / 21f;
             float x = fromX + (toX - fromX) * fraction;
@@ -1607,13 +1760,24 @@ public final class GameView extends View {
     }
 
     private void addNovaBurst(float x, float y, float radius) {
-        for (int index = 0; index < 40 && particles.size() < MAX_PARTICLES; index++) {
-            float angle = index / 40f * (float) Math.PI * 2f;
+        for (int index = 0; index < 58 && particles.size() < MAX_PARTICLES; index++) {
+            float angle = index / 58f * (float) Math.PI * 2f;
             float speed = radius * (0.75f + random.nextFloat() * 0.55f);
             addStreakParticle(x, y, (float) Math.cos(angle) * speed,
                     (float) Math.sin(angle) * speed * 0.58f,
                     index % 5 == 0 ? GOLD : CRIMSON,
                     4f + random.nextFloat() * 5f, 0.58f, 55f);
+        }
+    }
+
+    private void addBladeRainBurst(float x, float y) {
+        for (int index = 0; index < 24 && particles.size() < MAX_PARTICLES; index++) {
+            float spread = (random.nextFloat() - 0.5f) * 130f;
+            float speed = 330f + random.nextFloat() * 260f;
+            addStreakParticle(x + spread, y - 120f - random.nextFloat() * 120f,
+                    hero.facing * (65f + random.nextFloat() * 120f), speed,
+                    index % 5 == 0 ? Color.WHITE : index % 4 == 0 ? GOLD : CRIMSON,
+                    3f + random.nextFloat() * 4f, 0.28f + random.nextFloat() * 0.18f, 0f);
         }
     }
 
@@ -1699,16 +1863,18 @@ public final class GameView extends View {
     }
 
     private void drawScene(Canvas canvas) {
-        float shakeX = cameraKickX + (screenShake > 0f
-                ? (float) Math.sin(ambientClock * 84f) * screenShake : 0f);
-        float shakeY = cameraKickY + (screenShake > 0f
-                ? (float) Math.cos(ambientClock * 67f) * screenShake * 0.45f : 0f);
+        float comfortShake = Math.min(5.5f, screenShake * 0.24f);
+        float shakeX = cameraKickX * 0.42f + (comfortShake > 0f
+                ? (float) Math.sin(ambientClock * 61f) * comfortShake : 0f);
+        float shakeY = cameraKickY * 0.34f + (comfortShake > 0f
+                ? (float) Math.cos(ambientClock * 47f) * comfortShake * 0.22f : 0f);
         canvas.save();
         canvas.translate(shakeX, shakeY);
         if (cameraZoomPulse > 0f) {
             float pivotX = impactX > 1f ? impactX : LOGICAL_WIDTH * 0.5f;
             float pivotY = impactY > 1f ? impactY : GROUND_Y - 100f;
-            canvas.scale(1f + cameraZoomPulse, 1f + cameraZoomPulse, pivotX, pivotY);
+            float comfortZoom = cameraZoomPulse * 0.36f;
+            canvas.scale(1f + comfortZoom, 1f + comfortZoom, pivotX, pivotY);
         }
         drawBackground(canvas);
         if (screen == Screen.STORY) {
@@ -1886,15 +2052,16 @@ public final class GameView extends View {
 
     private void drawArena(Canvas canvas) {
         drawGroundGlow(canvas);
+        drawCombatSpeedLines(canvas);
         drawSkillEffects(canvas, false);
         for (Enemy enemy : enemies) {
             drawEnemyTelegraph(canvas, enemy);
         }
         for (Enemy enemy : enemies) {
             drawFighterShadow(canvas, enemyRenderX(enemy), enemy.dead ? 0.3f : 0.85f,
-                    enemy.kind == RpgRules.ENEMY_BOSS ? 62f : 40f);
+                    enemy.kind == RpgRules.ENEMY_BOSS ? 50f : 32f);
         }
-        drawFighterShadow(canvas, heroRenderX(), hero.dead ? 0.35f : 1f, 46f);
+        drawFighterShadow(canvas, heroRenderX(), hero.dead ? 0.35f : 1f, 35f);
         for (Enemy enemy : enemies) {
             drawEnemy(canvas, enemy);
         }
@@ -1911,6 +2078,35 @@ public final class GameView extends View {
                 Color.argb(62, 196, 24, 62), Color.TRANSPARENT, Shader.TileMode.CLAMP));
         canvas.drawOval(new RectF(18f, GROUND_Y - 55f, LOGICAL_WIDTH - 18f, GROUND_Y + 88f), paint);
         paint.setShader(null);
+    }
+
+    private void drawCombatSpeedLines(Canvas canvas) {
+        float velocityIntensity = RpgRules.clamp((Math.abs(hero.velocity) - 150f) / 380f,
+                0f, 1f);
+        float actionIntensity = heroAction == ACTION_RUSH ? 1f
+                : heroAction == ACTION_ATTACK ? 0.48f : 0f;
+        float intensity = Math.max(velocityIntensity, actionIntensity);
+        if (intensity <= 0.02f || hero.dead) {
+            return;
+        }
+        float direction = Math.abs(hero.velocity) > 20f
+                ? Math.signum(hero.velocity) : hero.facing;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for (int index = 0; index < 18; index++) {
+            float phase = (ambientClock * (720f + index * 19f) + index * 83f)
+                    % (LOGICAL_WIDTH + 220f);
+            float x = direction > 0f ? LOGICAL_WIDTH + 110f - phase : -110f + phase;
+            float y = 326f + (index * 67f % 520f);
+            float length = (52f + index % 5 * 24f) * intensity;
+            paint.setStrokeWidth((index % 4 == 0 ? 4f : 2f) * intensity);
+            paint.setColor(withAlpha(index % 6 == 0 ? CYAN : Color.WHITE,
+                    Math.round((index % 4 == 0 ? 92f : 48f) * intensity)));
+            canvas.drawLine(x - direction * length, y + index % 3 * 3f,
+                    x + direction * 20f, y, paint);
+        }
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawFighterShadow(Canvas canvas, float x, float alpha, float width) {
@@ -1975,10 +2171,21 @@ public final class GameView extends View {
             }
             float strikePulse = (float) Math.sin(Math.PI
                     * RpgRules.clamp(actionProgress * 1.24f, 0f, 1f));
-            lunge = hero.facing * strikePulse * (comboIndex == 2 ? 24f : 16f);
+            lunge = hero.facing * strikePulse * (comboIndex == 2 ? 31f : 23f);
             lean = -hero.facing * (4f + strikePulse * (comboIndex == 2 ? 8f : 5f));
             scaleX = 1f + strikePulse * 0.035f;
             scaleY = 1f - strikePulse * 0.025f;
+        } else if (heroAction == ACTION_RUSH) {
+            firstRow = secondRow = 2;
+            firstColumn = actionProgress < 0.48f ? 1 : 2;
+            secondColumn = actionProgress < 0.48f ? 2 : 3;
+            blend = easeOutCubic(actionProgress < 0.48f
+                    ? actionProgress / 0.48f : (actionProgress - 0.48f) / 0.52f);
+            lunge = hero.facing * (10f + 16f
+                    * (float) Math.sin(actionProgress * Math.PI));
+            lean = -hero.facing * 10f;
+            scaleX = 1.08f;
+            scaleY = 0.92f;
         } else if (hero.dashTimer > 0f) {
             float dashProgress = RpgRules.clamp(1f - hero.dashTimer / 0.19f, 0f, 1f);
             firstRow = secondRow = 1;
@@ -1999,7 +2206,7 @@ public final class GameView extends View {
             scaleX = 1.065f;
             scaleY = 0.94f;
         } else if (heroAction != ACTION_NONE) {
-            int skillColumn = heroAction == ACTION_SPEAR ? 0 : 1;
+            int skillColumn = heroAction == ACTION_SPEAR || heroAction == ACTION_RAIN ? 0 : 1;
             if (actionProgress < 0.3f) {
                 firstRow = 1;
                 firstColumn = 0;
@@ -2038,11 +2245,11 @@ public final class GameView extends View {
         }
 
         if (heroAction == ACTION_SPEAR || heroAction == ACTION_SIPHON
-                || heroAction == ACTION_NOVA) {
+                || heroAction == ACTION_NOVA || heroAction == ACTION_RAIN) {
             drawHeroSkillCharge(canvas, x, actionProgress);
         }
-        float width = 198f;
-        float height = 198f;
+        float width = 152f;
+        float height = 152f;
         float drawX = x + lunge;
         spriteDestination.set(drawX - width * 0.5f,
                 GROUND_Y - height + 8f, drawX + width * 0.5f, GROUND_Y + 8f);
@@ -2051,13 +2258,18 @@ public final class GameView extends View {
         canvas.save();
         canvas.rotate(lean, drawX, GROUND_Y + 5f);
         canvas.scale(scaleX, scaleY, drawX, GROUND_Y + 7f);
-        if (hero.dashTimer > 0f) {
-            for (int trail = 4; trail >= 1; trail--) {
+        boolean drawMotionTrail = hero.dashTimer > 0f || heroAction == ACTION_RUSH
+                || Math.abs(hero.velocity) > 315f;
+        if (drawMotionTrail) {
+            int trailCount = heroAction == ACTION_RUSH ? 6 : hero.dashTimer > 0f ? 4 : 2;
+            float spacing = heroAction == ACTION_RUSH ? 28f : hero.dashTimer > 0f ? 25f : 18f;
+            for (int trail = trailCount; trail >= 1; trail--) {
                 trailDestination.set(spriteDestination);
-                trailDestination.offset(-hero.facing * trail * 31f, 0f);
+                trailDestination.offset(-hero.facing * trail * spacing, 0f);
                 drawAtlasBlend(canvas, heroAtlas, 4, 4,
                         firstColumn, firstRow, secondColumn, secondRow, blend,
-                        trailDestination, hero.facing > 0, 14 + trail * 10, 4);
+                        trailDestination, hero.facing > 0,
+                        Math.min(92, 12 + trail * 11), 4);
             }
         }
         if (heroAtlas == null || heroAtlas.isRecycled()) {
@@ -2078,6 +2290,7 @@ public final class GameView extends View {
                 : smootherStep(RpgRules.clamp((progress - triggerFraction)
                 / Math.max(0.01f, 1f - triggerFraction), 0f, 1f));
         int color = heroAction == ACTION_SIPHON ? CYAN
+                : heroAction == ACTION_RAIN ? GOLD
                 : heroAction == ACTION_NOVA ? Color.rgb(230, 45, 91) : CRIMSON;
         float centerX = heroAction == ACTION_SPEAR ? x + hero.facing * 74f : x;
         float centerY = heroAction == ACTION_NOVA ? GROUND_Y - 102f : GROUND_Y - 116f;
@@ -2172,8 +2385,8 @@ public final class GameView extends View {
                 secondColumn = 1 - firstColumn;
                 blend = smootherStep(frame - (float) Math.floor(frame));
             }
-            float width = 270f;
-            float height = 228f;
+            float width = 220f;
+            float height = 186f;
             spriteDestination.set(x - width * 0.5f,
                     GROUND_Y - height + 13f, x + width * 0.5f, GROUND_Y + 13f);
             canvas.save();
@@ -2209,8 +2422,8 @@ public final class GameView extends View {
                 firstColumn = secondColumn = 0;
                 blend = 0f;
             }
-            float width = enemy.kind == RpgRules.ENEMY_WRAITH ? 186f : 176f;
-            float height = enemy.kind == RpgRules.ENEMY_WRAITH ? 170f : 164f;
+            float width = enemy.kind == RpgRules.ENEMY_WRAITH ? 150f : 142f;
+            float height = enemy.kind == RpgRules.ENEMY_WRAITH ? 138f : 132f;
             spriteDestination.set(x - width * 0.5f,
                     GROUND_Y - height + 10f, x + width * 0.5f, GROUND_Y + 10f);
             canvas.save();
@@ -2232,8 +2445,8 @@ public final class GameView extends View {
         }
         if (!enemy.dead && enemy.spawnTimer <= 0f
                 && (enemy.kind == RpgRules.ENEMY_BOSS || enemy.hurtTimer > 0f)) {
-            float width = enemy.kind == RpgRules.ENEMY_BOSS ? 216f : 96f;
-            float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 246f : GROUND_Y - 182f;
+            float width = enemy.kind == RpgRules.ENEMY_BOSS ? 178f : 82f;
+            float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 204f : GROUND_Y - 150f;
             drawMiniHealthBar(canvas, x - width * 0.5f, y, width,
                     enemy.health / Math.max(1f, enemy.maxHealth),
                     enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : CRIMSON);
@@ -2286,15 +2499,15 @@ public final class GameView extends View {
                         Shader.TileMode.CLAMP));
                 canvas.drawCircle(x, projectile.y, projectile.radius * 1.9f, paint);
                 paint.setShader(null);
-                for (int trail = 0; trail < 4; trail++) {
+                for (int trail = 0; trail < 6; trail++) {
                     float wave = (float) Math.sin(ambientClock * (18f + trail * 2f)
                             + trail * 1.7f) * (5f + trail * 2f);
                     paint.setStyle(Paint.Style.STROKE);
-                    paint.setStrokeWidth((9f - trail * 1.6f) * pulse);
+                    paint.setStrokeWidth(Math.max(1.8f, 10f - trail * 1.35f) * pulse);
                     paint.setColor(withAlpha(trail == 0 ? Color.WHITE
                                     : trail == 3 ? GOLD : CRIMSON,
-                            210 - trail * 36));
-                    canvas.drawLine(x - direction * (42f + trail * 24f),
+                            218 - trail * 29));
+                    canvas.drawLine(x - direction * (48f + trail * 27f),
                             projectile.y + wave,
                             x + direction * (24f - trail * 2f), projectile.y - wave * 0.25f,
                             paint);
@@ -2339,7 +2552,7 @@ public final class GameView extends View {
             float progress = RpgRules.clamp(1f - effect.life / effect.maxLife, 0f, 1f);
             float fade = 1f - smootherStep(RpgRules.clamp((progress - 0.52f) / 0.48f, 0f, 1f));
             if (effect.kind == FX_NOVA) {
-                float expansion = smootherStep(progress);
+                float expansion = easeOutCubic(progress);
                 float radius = effect.radius * expansion;
                 if (!foreground) {
                     paint.setShader(new RadialGradient(effect.x, effect.y,
@@ -2358,15 +2571,16 @@ public final class GameView extends View {
                 } else {
                     paint.setStyle(Paint.Style.STROKE);
                     paint.setStrokeCap(Paint.Cap.ROUND);
-                    for (int ring = 0; ring < 3; ring++) {
-                        float ringRadius = radius * (0.56f + ring * 0.2f);
-                        paint.setStrokeWidth(9f - ring * 2f);
+                    for (int ring = 0; ring < 5; ring++) {
+                        float ringRadius = radius * (0.42f + ring * 0.135f);
+                        paint.setStrokeWidth(Math.max(2f, 10f - ring * 1.7f));
                         paint.setColor(withAlpha(ring == 1 ? GOLD : CRIMSON,
                                 Math.round((215f - ring * 45f) * fade)));
                         canvas.drawCircle(effect.x, effect.y, ringRadius, paint);
                     }
-                    for (int ray = 0; ray < 18; ray++) {
-                        float angle = effect.seed + ray * (float) Math.PI * 2f / 18f;
+                    for (int ray = 0; ray < 28; ray++) {
+                        float angle = effect.seed + progress * 1.8f
+                                + ray * (float) Math.PI * 2f / 28f;
                         float inner = radius * (0.58f + (ray % 3) * 0.07f);
                         float outer = inner + 34f + (ray % 4) * 13f;
                         paint.setStrokeWidth(ray % 4 == 0 ? 6f : 3f);
@@ -2380,11 +2594,85 @@ public final class GameView extends View {
                     paint.setStrokeCap(Paint.Cap.BUTT);
                     paint.setStyle(Paint.Style.FILL);
                 }
+            } else if (effect.kind == FX_RUSH) {
+                float dx = effect.targetX - effect.x;
+                float coreFade = fade * (1f - progress * 0.35f);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                if (!foreground) {
+                    for (int band = 0; band < 5; band++) {
+                        float offset = (band - 2) * 12f;
+                        paint.setStrokeWidth(22f - band * 3f);
+                        paint.setColor(withAlpha(band == 0 ? Color.WHITE
+                                        : band == 2 ? GOLD : CRIMSON,
+                                Math.round((72f - band * 8f) * coreFade)));
+                        canvas.drawLine(effect.x - effect.direction * 44f,
+                                effect.y + offset,
+                                effect.targetX + effect.direction * 34f,
+                                effect.targetY - offset * 0.25f, paint);
+                    }
+                } else {
+                    float impactRadius = 34f + easeOutCubic(progress) * 104f;
+                    for (int slash = -4; slash <= 4; slash++) {
+                        float offset = slash * 13f;
+                        paint.setStrokeWidth(slash == 0 ? 8f : 3f);
+                        paint.setColor(withAlpha(slash % 3 == 0 ? Color.WHITE : CRIMSON,
+                                Math.round((slash == 0 ? 240f : 155f) * fade)));
+                        canvas.drawLine(effect.targetX - effect.direction * impactRadius,
+                                effect.targetY + offset - 58f,
+                                effect.targetX + effect.direction * impactRadius * 0.7f,
+                                effect.targetY - offset + 58f, paint);
+                    }
+                    paint.setStrokeWidth(6f * fade + 1f);
+                    paint.setColor(withAlpha(GOLD, Math.round(210f * fade)));
+                    canvas.drawCircle(effect.targetX, effect.targetY,
+                            impactRadius * 0.62f, paint);
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+            } else if (effect.kind == FX_RAIN) {
+                float strike = easeOutCubic(RpgRules.clamp(progress * 1.5f, 0f, 1f));
+                if (!foreground) {
+                    float glowRadius = 68f + strike * 88f;
+                    paint.setShader(new RadialGradient(effect.x, effect.y, glowRadius,
+                            withAlpha(GOLD, Math.round(105f * fade)),
+                            withAlpha(CRIMSON, 0), Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, effect.y, glowRadius, paint);
+                    paint.setShader(null);
+                } else {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int blade = 0; blade < 9; blade++) {
+                        float delay = blade * 0.055f;
+                        float bladeProgress = easeOutCubic(RpgRules.clamp(
+                                (progress - delay) / Math.max(0.01f, 0.62f - delay), 0f, 1f));
+                        float offset = (blade - 4) * 24f;
+                        float startX = effect.x + offset - effect.direction * 96f;
+                        float startY = effect.y - 290f - (blade % 3) * 28f;
+                        float endX = effect.x + offset * 0.55f + effect.direction * 38f;
+                        float endY = effect.y + 52f;
+                        float bladeX = lerp(startX, endX, bladeProgress);
+                        float bladeY = lerp(startY, endY, bladeProgress);
+                        paint.setStrokeWidth(blade % 3 == 0 ? 7f : 3.5f);
+                        paint.setColor(withAlpha(blade % 4 == 0 ? Color.WHITE
+                                        : blade % 3 == 0 ? GOLD : CRIMSON,
+                                Math.round((blade % 3 == 0 ? 235f : 175f) * fade)));
+                        canvas.drawLine(bladeX - effect.direction * 72f, bladeY - 96f,
+                                bladeX + effect.direction * 26f, bladeY + 42f, paint);
+                    }
+                    paint.setStrokeWidth(5f);
+                    paint.setColor(withAlpha(CRIMSON, Math.round(190f * fade)));
+                    effectBounds.set(effect.x - 108f, effect.y + 28f,
+                            effect.x + 108f, effect.y + 68f);
+                    canvas.drawOval(effectBounds, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
             } else if (foreground && effect.kind == FX_TETHER) {
                 float dx = effect.targetX - effect.x;
                 float direction = dx == 0f ? 1f : Math.signum(dx);
-                for (int strand = 0; strand < 4; strand++) {
-                    float wave = (float) Math.sin(progress * 18f + effect.seed + strand * 1.8f)
+                for (int strand = 0; strand < 6; strand++) {
+                    float wave = (float) Math.sin(progress * 26f + effect.seed + strand * 1.8f)
                             * (16f + strand * 4f);
                     float control1X = effect.x + dx * 0.32f;
                     float control2X = effect.x + dx * 0.7f;
@@ -2574,7 +2862,17 @@ public final class GameView extends View {
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(20f);
         textPaint.setColor(CYAN);
-        canvas.drawText("AUTO HUNT  ●  자동 전진 · 자동 기본 공격", 360f, 1009f, textPaint);
+        canvas.drawText("AUTO BATTLE  ●  자동 추격 · 기본 공격 · 혈술 연계", 360f, 1009f, textPaint);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(13f);
+        textPaint.setColor(Color.rgb(190, 198, 216));
+        String rushState = progress.level < 3 ? "Lv.3 해금"
+                : rushCooldown <= 0f ? "READY" : oneDecimal(rushCooldown) + "s";
+        String rainState = progress.level < 6 ? "Lv.6 해금"
+                : rainCooldown <= 0f ? "READY" : oneDecimal(rainCooldown) + "s";
+        canvas.drawText("자동 혈술  ·  혈영쇄도 " + rushState
+                + "  /  적월검우 " + rainState, 360f, 1057f, textPaint);
 
         drawControlButton(canvas, 92f, 1130f, 57f, "✦", "개입 대시", false,
                 0f, true, Color.rgb(70, 83, 112));
@@ -2748,8 +3046,8 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(17f);
         textPaint.setColor(Color.rgb(194, 200, 214));
-        canvas.drawText("카엘은 스스로 전진하고 싸웁니다", 360f, 614f, textPaint);
-        canvas.drawText("당신은 혈술과 성장으로 운명에 개입하세요", 360f, 649f, textPaint);
+        canvas.drawText("카엘은 적에게 달려들며 기본 공격과 혈술을 연계합니다", 360f, 614f, textPaint);
+        canvas.drawText("원할 때 버튼을 눌러 자동 전투에 직접 개입하세요", 360f, 649f, textPaint);
 
         if (continueAvailable) {
             drawMenuButton(canvas, continueButton,
@@ -2762,7 +3060,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.4.0 DEMO  ·  FAST RESPONSE", 360f, 1120f, textPaint);
+        canvas.drawText("v4.5.0 DEMO  ·  BLOOD RUSH", 360f, 1120f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -2918,7 +3216,7 @@ public final class GameView extends View {
         canvas.drawText("혈석  +" + progress.relicPower + " 혈기", 468f, 1008f, textPaint);
         textPaint.setTextSize(14f);
         textPaint.setColor(Color.rgb(142, 151, 171));
-        canvas.drawText("강한 장비는 자동 장착, 나머지는 가방에 보관됩니다", 72f, 1045f, textPaint);
+        canvas.drawText("자동 혈술: Lv.3 혈영쇄도 · Lv.6 적월검우", 72f, 1045f, textPaint);
         textPaint.setTextAlign(Paint.Align.CENTER);
         drawMenuButton(canvas, growthCloseButton,
                 growthReturnScreen == Screen.PAUSED ? "일시정지로" : "전투로 복귀", true);
