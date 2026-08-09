@@ -128,4 +128,11 @@ public final class RpgRulesTest {
         assertTrue(shift <= 620f / 60f + 0.001f);
         assertTrue(620f - shift >= RpgRules.COMBAT_ANCHOR_X);
     }
+
+    @Test
+    public void portraitControlRowsNeverOverlap() {
+        assertTrue(GameUiLayout.autoToManualRowGap()
+                >= GameUiLayout.MIN_CONTROL_ROW_GAP);
+        assertTrue(GameUiLayout.portraitControlsAreSeparatedAndVisible());
+    }
 }

@@ -3405,37 +3405,45 @@ public final class GameView extends View {
         paint.setShader(null);
 
         paint.setColor(Color.argb(205, 9, 15, 27));
-        canvas.drawRoundRect(new RectF(28f, 966f, 692f, 1034f), 22f, 22f, paint);
+        RectF autoBattleBounds = new RectF(GameUiLayout.AUTO_BATTLE_LEFT,
+                GameUiLayout.AUTO_BATTLE_TOP, GameUiLayout.AUTO_BATTLE_RIGHT,
+                GameUiLayout.AUTO_BATTLE_BOTTOM);
+        canvas.drawRoundRect(autoBattleBounds, 22f, 22f, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2f);
         paint.setColor(Color.argb(175, 93, 218, 235));
-        canvas.drawRoundRect(new RectF(28f, 966f, 692f, 1034f), 22f, 22f, paint);
+        canvas.drawRoundRect(autoBattleBounds, 22f, 22f, paint);
         paint.setStyle(Paint.Style.FILL);
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(20f);
         textPaint.setColor(CYAN);
-        canvas.drawText("AUTO BATTLE  ●  자동 추격 · 기본 공격 · 혈술 연계", 360f, 1009f, textPaint);
+        canvas.drawText("AUTO BATTLE  ●  자동 추격 · 기본 공격 · 혈술 연계", 360f,
+                GameUiLayout.AUTO_BATTLE_TEXT_Y, textPaint);
 
-        drawAutoSkillChip(canvas, 82f, 1058f, ICON_RUSH, "쇄도",
+        drawAutoSkillChip(canvas, 82f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_RUSH, "쇄도",
                 progress.level >= 3, rushCooldown, Color.rgb(222, 43, 83));
-        drawAutoSkillChip(canvas, 221f, 1058f, ICON_RAIN, "검우",
+        drawAutoSkillChip(canvas, 221f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_RAIN, "검우",
                 progress.level >= 6, rainCooldown, GOLD);
-        drawAutoSkillChip(canvas, 360f, 1058f, ICON_CHAIN, "사슬",
+        drawAutoSkillChip(canvas, 360f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_CHAIN, "사슬",
                 progress.level >= 9, chainCooldown, CYAN);
-        drawAutoSkillChip(canvas, 499f, 1058f, ICON_PILLAR, "기둥",
+        drawAutoSkillChip(canvas, 499f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_PILLAR, "기둥",
                 progress.level >= 12, pillarCooldown, Color.rgb(255, 88, 75));
-        drawAutoSkillChip(canvas, 638f, 1058f, ICON_ECLIPSE, "월식",
+        drawAutoSkillChip(canvas, 638f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_ECLIPSE, "월식",
                 progress.level >= 15, eclipseCooldown, VIOLET);
 
-        drawControlButton(canvas, 92f, 1130f, 57f, ICON_DASH, "개입 대시", false,
+        drawControlButton(canvas, 92f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 57f,
+                ICON_DASH, "개입 대시", false,
                 0f, true, Color.rgb(70, 83, 112));
-        drawControlButton(canvas, 292f, 1130f, 60f, ICON_SPEAR, "혈창 20",
+        drawControlButton(canvas, 292f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 60f,
+                ICON_SPEAR, "혈창 20",
                 queuedSkillAction == ACTION_SPEAR,
                 spearCooldown / 0.9f, true, Color.rgb(154, 24, 58));
-        drawControlButton(canvas, 463f, 1130f, 60f, ICON_SIPHON, "흡혈 30",
+        drawControlButton(canvas, 463f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 60f,
+                ICON_SIPHON, "흡혈 30",
                 queuedSkillAction == ACTION_SIPHON,
                 siphonCooldown / 4.8f, progress.level >= 4, Color.rgb(38, 119, 144));
-        drawControlButton(canvas, 630f, 1130f, 60f, ICON_NOVA, "폭발 55",
+        drawControlButton(canvas, 630f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 60f,
+                ICON_NOVA, "폭발 55",
                 queuedSkillAction == ACTION_NOVA,
                 novaCooldown / 7.5f, progress.level >= 7, Color.rgb(115, 53, 149));
 
@@ -3472,12 +3480,14 @@ public final class GameView extends View {
                 enabled ? Color.WHITE : Color.rgb(115, 118, 129));
         textPaint.setTextSize(14f);
         textPaint.setColor(enabled ? Color.rgb(226, 229, 238) : Color.rgb(110, 112, 121));
-        canvas.drawText(label, x, y + radius + 19f, textPaint);
+        canvas.drawText(label, x, y + radius + GameUiLayout.MANUAL_SKILL_LABEL_OFFSET,
+                textPaint);
     }
 
     private void drawAutoSkillChip(Canvas canvas, float x, float y, int icon,
                                    String label, boolean unlocked, float cooldown, int color) {
-        RectF bounds = new RectF(x - 62f, y - 22f, x + 62f, y + 22f);
+        RectF bounds = new RectF(x - 62f, y - GameUiLayout.AUTO_SKILL_HALF_HEIGHT,
+                x + 62f, y + GameUiLayout.AUTO_SKILL_HALF_HEIGHT);
         paint.setColor(Color.argb(unlocked ? 205 : 145, 10, 14, 25));
         canvas.drawRoundRect(bounds, 14f, 14f, paint);
         paint.setStyle(Paint.Style.STROKE);
@@ -3686,11 +3696,11 @@ public final class GameView extends View {
         textPaint.setTextSize(66f);
         textPaint.setLetterSpacing(0.08f);
         textPaint.setColor(Color.rgb(237, 225, 216));
-        drawTextWithShadow(canvas, "BLOOD MOON", 360f, 378f, textPaint);
+        drawTextWithShadow(canvas, "VAYLORN", 360f, 378f, textPaint);
         textPaint.setLetterSpacing(0f);
         textPaint.setTextSize(34f);
         textPaint.setColor(CRIMSON);
-        drawTextWithShadow(canvas, "밤의 계승자", 360f, 430f, textPaint);
+        drawTextWithShadow(canvas, "IDLE BLOOD RPG", 360f, 430f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(19f);
         textPaint.setColor(Color.rgb(209, 215, 228));
@@ -3724,7 +3734,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.11.0 DEMO  ·  PAINTED VFX", 360f, 1120f, textPaint);
+        canvas.drawText("v4.12.0 DEMO  ·  PORTRAIT RPG", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {
@@ -4416,15 +4426,15 @@ public final class GameView extends View {
             resetPointers();
             return;
         }
-        if (insideCircle(x, y, 92f, 1130f, 68f)) {
+        if (insideCircle(x, y, 92f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 68f)) {
             dashPressed = true;
-        } else if (insideCircle(x, y, 292f, 1130f, 70f)) {
+        } else if (insideCircle(x, y, 292f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 70f)) {
             spearPressed = true;
             performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
-        } else if (insideCircle(x, y, 463f, 1130f, 70f)) {
+        } else if (insideCircle(x, y, 463f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 70f)) {
             siphonPressed = true;
             performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
-        } else if (insideCircle(x, y, 630f, 1130f, 70f)) {
+        } else if (insideCircle(x, y, 630f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 70f)) {
             novaPressed = true;
             performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         }

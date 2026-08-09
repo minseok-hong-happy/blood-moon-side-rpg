@@ -10,8 +10,8 @@ Set-StrictMode -Version Latest
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $safeBase = Join-Path $env:LOCALAPPDATA 'BloodMoonNightfall'
 $stageRoot = Join-Path $safeBase 'release-stage'
-$versionName = '4.11.0-demo'
-$apkFileName = "BloodMoon-Nightfall-v$versionName.apk"
+$versionName = '4.12.0-demo'
+$apkFileName = "VAYLORN-v$versionName.apk"
 $expectedSignerSha256 = '41B6CCB282C142826227EB6D0B6108E5A8F78FC2CFF08E845B9458B2F08FA99D'
 
 if (-not $JdkHome -or -not (Test-Path -LiteralPath (Join-Path $JdkHome 'bin\java.exe'))) {
