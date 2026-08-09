@@ -103,7 +103,8 @@ public final class GameView extends View {
         GROWTH,
         DEFEAT,
         NEW_CONFIRM,
-        STORY
+        STORY,
+        INVENTORY
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -134,6 +135,7 @@ public final class GameView extends View {
 
     private Screen screen = Screen.TITLE;
     private Screen growthReturnScreen = Screen.PLAYING;
+    private Screen inventoryReturnScreen = Screen.PLAYING;
     private long lastFrameNanos;
     private float accumulator;
     private float renderScale = 1f;
@@ -191,6 +193,7 @@ public final class GameView extends View {
     private boolean storyStartsWave;
     private boolean storyFullRestore;
     private boolean storyFinale;
+    private int selectedInventoryItem = -1;
 
     private boolean saveDirty;
     private float saveDelay;
@@ -215,6 +218,9 @@ public final class GameView extends View {
     private final RectF confirmNewButton = new RectF(84f, 720f, 346f, 808f);
     private final RectF cancelNewButton = new RectF(374f, 720f, 636f, 808f);
     private final RectF growthCloseButton = new RectF(204f, 1094f, 516f, 1168f);
+    private final RectF inventoryHudButton = new RectF(398f, 232f, 544f, 286f);
+    private final RectF inventoryActionButton = new RectF(52f, 1040f, 412f, 1122f);
+    private final RectF inventoryCloseButton = new RectF(430f, 1040f, 668f, 1122f);
     private final RectF[] upgradeButtons = new RectF[7];
 
     public GameView(Context context) {
@@ -1112,25 +1118,28 @@ public final class GameView extends View {
         int power = RpgRules.equipmentPower(progress.region, progress.wave, progress.level,
                 rarity, progress.chapterClears);
         int slot = random.nextInt(3);
-        int current = slot == 0 ? progress.weaponPower
-                : slot == 1 ? progress.armorPower : progress.relicPower;
-        String slotName = slot == 0 ? "무기" : slot == 1 ? "갑옷" : "혈석";
+        int current = equippedPower(slot);
+        int item = makeItemCode(slot, rarity, power);
         if (power > current) {
-            if (slot == 0) {
-                progress.weaponPower = power;
-            } else if (slot == 1) {
-                progress.armorPower = power;
-            } else {
-                progress.relicPower = power;
+            if (current > 0) {
+                int replaced = makeItemCode(slot, rarityFromPower(current), current);
+                if (!stashItem(replaced)) {
+                    progress.gold += salvageValue(replaced);
+                }
             }
+            setEquippedPower(slot, power);
             syncHeroStats(false);
-            showToast(rarityName(rarity) + " " + slotName + " 획득  ·  전투력 +" + power, 2.4f);
+            showToast(rarityName(rarity) + " " + slotName(slot)
+                    + " 자동 장착  ·  +" + power, 2.4f);
             floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 310f,
                     "장비 교체!", rarityColor(rarity), 1.6f));
+        } else if (stashItem(item)) {
+            showToast(rarityName(rarity) + " " + slotName(slot) + " 가방 보관", 1.8f);
         } else {
-            int salvage = Math.max(8, power * 2);
+            int salvage = salvageValue(item);
             progress.gold += salvage;
-            showToast(slotName + " 분해  ·  +" + salvage + " 골드", 1.6f);
+            showToast("가방이 가득 차 " + slotName(slot) + " 자동 분해  ·  +"
+                    + salvage + " 골드", 2f);
         }
         saveNow();
     }
@@ -1546,6 +1555,8 @@ public final class GameView extends View {
                 drawPause(canvas);
             } else if (screen == Screen.GROWTH) {
                 drawGrowth(canvas);
+            } else if (screen == Screen.INVENTORY) {
+                drawInventory(canvas);
             } else if (screen == Screen.DEFEAT) {
                 drawDefeat(canvas);
             }
@@ -1608,7 +1619,8 @@ public final class GameView extends View {
         canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
         drawAmbientMotes(canvas, region);
-        if (screen == Screen.PLAYING || screen == Screen.PAUSED || screen == Screen.GROWTH) {
+        if (screen == Screen.PLAYING || screen == Screen.PAUSED || screen == Screen.GROWTH
+                || screen == Screen.INVENTORY) {
             drawTravelingForeground(canvas, region);
         }
     }
@@ -1977,6 +1989,19 @@ public final class GameView extends View {
         textPaint.setColor(GOLD);
         canvas.drawText("성장  ▲", 630f, 266f, textPaint);
 
+        paint.setColor(Color.argb(196, 10, 12, 24));
+        canvas.drawRoundRect(inventoryHudButton, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(150, 103, 218, 235));
+        canvas.drawRoundRect(inventoryHudButton, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(CYAN);
+        canvas.drawText("가방  " + inventoryCount() + "/" + RpgProgress.INVENTORY_SIZE,
+                inventoryHudButton.centerX(), 266f, textPaint);
+
         paint.setColor(Color.argb(165, 8, 10, 19));
         canvas.drawRoundRect(new RectF(18f, 232f, 375f, 286f), 18f, 18f, paint);
         textPaint.setTextAlign(Paint.Align.LEFT);
@@ -2189,7 +2214,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.1.0 DEMO  ·  AI AUDIO", 360f, 1120f, textPaint);
+        canvas.drawText("v4.2.0 DEMO  ·  INVENTORY", 360f, 1120f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -2336,7 +2361,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(19f);
         textPaint.setColor(GOLD);
-        canvas.drawText("자동 장착 장비", 72f, 970f, textPaint);
+        canvas.drawText("장착 장비", 72f, 970f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(17f);
         textPaint.setColor(Color.rgb(210, 215, 228));
@@ -2345,10 +2370,165 @@ public final class GameView extends View {
         canvas.drawText("혈석  +" + progress.relicPower + " 혈기", 468f, 1008f, textPaint);
         textPaint.setTextSize(14f);
         textPaint.setColor(Color.rgb(142, 151, 171));
-        canvas.drawText("더 강한 전리품은 즉시 장착되고, 낮은 장비는 골드로 분해됩니다", 72f, 1045f, textPaint);
+        canvas.drawText("강한 장비는 자동 장착, 나머지는 가방에 보관됩니다", 72f, 1045f, textPaint);
         textPaint.setTextAlign(Paint.Align.CENTER);
         drawMenuButton(canvas, growthCloseButton,
                 growthReturnScreen == Screen.PAUSED ? "일시정지로" : "전투로 복귀", true);
+    }
+
+    private void drawInventory(Canvas canvas) {
+        drawOverlay(canvas, 220);
+        paint.setColor(Color.argb(250, 7, 10, 20));
+        canvas.drawRoundRect(new RectF(24f, 58f, 696f, 1170f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(175, 91, 213, 232));
+        canvas.drawRoundRect(new RectF(24f, 58f, 696f, 1170f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(42f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText("혈월 가방", 360f, 116f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(18f);
+        textPaint.setColor(GOLD);
+        canvas.drawText("◆ " + formatNumber(progress.gold) + "   ·   전투력 " + combatPower(),
+                360f, 154f, textPaint);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(Color.rgb(215, 222, 234));
+        canvas.drawText("장착 장비", 52f, 207f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        drawEquippedItem(canvas, 0, new RectF(52f, 228f, 232f, 420f), progress.weaponPower);
+        drawEquippedItem(canvas, 1, new RectF(270f, 228f, 450f, 420f), progress.armorPower);
+        drawEquippedItem(canvas, 2, new RectF(488f, 228f, 668f, 420f), progress.relicPower);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(Color.rgb(215, 222, 234));
+        canvas.drawText("전리품  " + inventoryCount() + "/" + RpgProgress.INVENTORY_SIZE,
+                52f, 474f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        for (int index = 0; index < RpgProgress.INVENTORY_SIZE; index++) {
+            drawInventoryItem(canvas, index, inventorySlotBounds(index),
+                    progress.inventory[index], index == selectedInventoryItem);
+        }
+
+        paint.setColor(Color.argb(185, 13, 18, 31));
+        canvas.drawRoundRect(new RectF(52f, 956f, 668f, 1028f), 18f, 18f, paint);
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(17f);
+        if (selectedInventoryItem >= 0
+                && progress.inventory[selectedInventoryItem] != 0) {
+            int item = progress.inventory[selectedInventoryItem];
+            int slot = itemSlot(item);
+            int power = itemPower(item);
+            int difference = power - equippedPower(slot);
+            textPaint.setColor(rarityColor(itemRarity(item)));
+            canvas.drawText(itemName(slot, itemRarity(item)), 72f, 986f, textPaint);
+            textPaint.setTypeface(uiTypeface);
+            textPaint.setTextSize(15f);
+            textPaint.setColor(difference > 0 ? CYAN : Color.rgb(184, 192, 208));
+            canvas.drawText(itemEffect(slot, power) + "   ·   현재 장비 대비 "
+                    + (difference >= 0 ? "+" : "") + difference, 72f, 1012f, textPaint);
+        } else {
+            textPaint.setColor(Color.rgb(168, 177, 195));
+            canvas.drawText("전리품을 선택하면 능력치 비교와 관리가 표시됩니다", 72f, 998f, textPaint);
+        }
+        textPaint.setTextAlign(Paint.Align.CENTER);
+
+        String actionLabel = "아이템 선택";
+        boolean actionEnabled = selectedInventoryItem >= 0
+                && progress.inventory[selectedInventoryItem] != 0;
+        if (actionEnabled) {
+            int item = progress.inventory[selectedInventoryItem];
+            int power = itemPower(item);
+            actionLabel = power > equippedPower(itemSlot(item)) ? "선택 장비 착용"
+                    : "분해  ·  +" + salvageValue(item) + " 골드";
+        }
+        drawMenuButton(canvas, inventoryActionButton, actionLabel, actionEnabled);
+        drawMenuButton(canvas, inventoryCloseButton,
+                inventoryReturnScreen == Screen.PAUSED ? "일시정지로" : "전투로", true);
+    }
+
+    private void drawEquippedItem(Canvas canvas, int slot, RectF bounds, int power) {
+        int rarity = rarityFromPower(power);
+        paint.setColor(Color.argb(205, 13, 17, 29));
+        canvas.drawRoundRect(bounds, 20f, 20f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(withAlpha(rarityColor(rarity), 190));
+        canvas.drawRoundRect(bounds, 20f, 20f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        drawItemSymbol(canvas, slot, bounds.centerX(), bounds.top + 55f,
+                30f, rarityColor(rarity));
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText(slotName(slot), bounds.centerX(), bounds.top + 105f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setColor(rarityColor(rarity));
+        canvas.drawText(power > 0 ? itemName(slot, rarity) : "빈 슬롯",
+                bounds.centerX(), bounds.top + 134f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.rgb(215, 222, 235));
+        canvas.drawText(power > 0 ? itemEffect(slot, power) : "효과 없음",
+                bounds.centerX(), bounds.top + 166f, textPaint);
+    }
+
+    private void drawInventoryItem(Canvas canvas, int index, RectF bounds,
+                                   int item, boolean selected) {
+        int rarity = item == 0 ? 0 : itemRarity(item);
+        paint.setColor(selected ? Color.argb(235, 24, 33, 52) : Color.argb(190, 12, 16, 28));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(selected ? 4f : 2f);
+        paint.setColor(item == 0 ? Color.argb(80, 125, 135, 154)
+                : withAlpha(rarityColor(rarity), selected ? 240 : 150));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        if (item == 0) {
+            textPaint.setTypeface(uiTypeface);
+            textPaint.setTextSize(16f);
+            textPaint.setColor(Color.rgb(103, 112, 131));
+            canvas.drawText("빈 칸", bounds.centerX(), bounds.centerY() + 6f, textPaint);
+            return;
+        }
+        int slot = itemSlot(item);
+        drawItemSymbol(canvas, slot, bounds.left + 42f, bounds.centerY(),
+                23f, rarityColor(rarity));
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(rarityColor(rarity));
+        canvas.drawText(itemName(slot, rarity), bounds.left + 82f, bounds.top + 42f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setColor(Color.rgb(205, 213, 226));
+        canvas.drawText(itemEffect(slot, itemPower(item)), bounds.left + 82f,
+                bounds.top + 72f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawItemSymbol(Canvas canvas, int slot, float x, float y,
+                                float radius, int color) {
+        paint.setShader(new RadialGradient(x - radius * 0.25f, y - radius * 0.3f,
+                radius * 1.35f, withAlpha(color, 235), darken(color, 0.35f),
+                Shader.TileMode.CLAMP));
+        canvas.drawCircle(x, y, radius, paint);
+        paint.setShader(null);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(radius * 0.92f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText(slot == 0 ? "⚔" : slot == 1 ? "◇" : "◆", x, y + radius * 0.32f,
+                textPaint);
     }
 
     private void drawStatUpgrade(Canvas canvas, int index, String title, String effect,
@@ -2600,6 +2780,14 @@ public final class GameView extends View {
             resetPointers();
             return;
         }
+        if (inventoryHudButton.contains(x, y)) {
+            inventoryReturnScreen = Screen.PLAYING;
+            selectedInventoryItem = -1;
+            screen = Screen.INVENTORY;
+            resetPointers();
+            audio.playUiTap();
+            return;
+        }
         if (new RectF(548f, 222f, 710f, 298f).contains(x, y)) {
             growthReturnScreen = Screen.PLAYING;
             screen = Screen.GROWTH;
@@ -2673,6 +2861,23 @@ public final class GameView extends View {
                     lastFrameNanos = System.nanoTime();
                 }
             }
+        } else if (screen == Screen.INVENTORY) {
+            for (int index = 0; index < RpgProgress.INVENTORY_SIZE; index++) {
+                if (inventorySlotBounds(index).contains(x, y)) {
+                    selectedInventoryItem = progress.inventory[index] == 0 ? -1 : index;
+                    audio.playUiTap();
+                    return;
+                }
+            }
+            if (inventoryActionButton.contains(x, y)) {
+                manageSelectedInventoryItem();
+            } else if (inventoryCloseButton.contains(x, y)) {
+                screen = inventoryReturnScreen;
+                selectedInventoryItem = -1;
+                if (screen == Screen.PLAYING) {
+                    lastFrameNanos = System.nanoTime();
+                }
+            }
         } else if (screen == Screen.DEFEAT) {
             if (retryButton.contains(x, y)) {
                 retryCurrentWave();
@@ -2690,7 +2895,8 @@ public final class GameView extends View {
 
     public void pauseFromSystem() {
         audio.pause();
-        if (screen == Screen.PLAYING || screen == Screen.GROWTH) {
+        if (screen == Screen.PLAYING || screen == Screen.GROWTH
+                || screen == Screen.INVENTORY) {
             saveNow();
             screen = Screen.PAUSED;
             resetPointers();
@@ -2722,6 +2928,14 @@ public final class GameView extends View {
         }
         if (screen == Screen.GROWTH) {
             screen = growthReturnScreen;
+            if (screen == Screen.PLAYING) {
+                lastFrameNanos = System.nanoTime();
+            }
+            return true;
+        }
+        if (screen == Screen.INVENTORY) {
+            screen = inventoryReturnScreen;
+            selectedInventoryItem = -1;
             if (screen == Screen.PLAYING) {
                 lastFrameNanos = System.nanoTime();
             }
@@ -2761,6 +2975,135 @@ public final class GameView extends View {
     private void showToast(String text, float duration) {
         toastText = text;
         toastTimer = duration;
+    }
+
+    private boolean stashItem(int item) {
+        if (!RpgProgress.isValidItem(item) || item == 0) {
+            return false;
+        }
+        for (int index = 0; index < progress.inventory.length; index++) {
+            if (progress.inventory[index] == 0) {
+                progress.inventory[index] = item;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void manageSelectedInventoryItem() {
+        if (selectedInventoryItem < 0
+                || selectedInventoryItem >= progress.inventory.length) {
+            return;
+        }
+        int item = progress.inventory[selectedInventoryItem];
+        if (item == 0 || !RpgProgress.isValidItem(item)) {
+            selectedInventoryItem = -1;
+            return;
+        }
+        int slot = itemSlot(item);
+        int power = itemPower(item);
+        int current = equippedPower(slot);
+        progress.inventory[selectedInventoryItem] = 0;
+        if (power > current) {
+            if (current > 0) {
+                stashItem(makeItemCode(slot, rarityFromPower(current), current));
+            }
+            setEquippedPower(slot, power);
+            syncHeroStats(false);
+            showToast(itemName(slot, itemRarity(item)) + " 장착 완료", 1.7f);
+            addBurst(hero.x, GROUND_Y - 120f, rarityColor(itemRarity(item)), 15, 145f);
+        } else {
+            int salvage = salvageValue(item);
+            progress.gold += salvage;
+            showToast(itemName(slot, itemRarity(item)) + " 분해  ·  +"
+                    + salvage + " 골드", 1.7f);
+        }
+        selectedInventoryItem = -1;
+        audio.playUiTap();
+        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        saveNow();
+    }
+
+    private int inventoryCount() {
+        int count = 0;
+        for (int item : progress.inventory) {
+            if (item != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int equippedPower(int slot) {
+        return slot == 0 ? progress.weaponPower
+                : slot == 1 ? progress.armorPower : progress.relicPower;
+    }
+
+    private void setEquippedPower(int slot, int power) {
+        if (slot == 0) {
+            progress.weaponPower = power;
+        } else if (slot == 1) {
+            progress.armorPower = power;
+        } else {
+            progress.relicPower = power;
+        }
+    }
+
+    private static RectF inventorySlotBounds(int index) {
+        int column = index % 2;
+        int row = index / 2;
+        float left = column == 0 ? 52f : 376f;
+        float top = 500f + row * 146f;
+        return new RectF(left, top, left + 292f, top + 124f);
+    }
+
+    private static int makeItemCode(int slot, int rarity, int power) {
+        return 1 + RpgRules.clamp(slot, 0, 2) * 10_000
+                + RpgRules.clamp(rarity, 0, 3) * 1_000
+                + RpgRules.clamp(power, 1, 300);
+    }
+
+    private static int itemSlot(int item) {
+        return Math.max(0, item - 1) / 10_000;
+    }
+
+    private static int itemRarity(int item) {
+        return Math.max(0, item - 1) % 10_000 / 1_000;
+    }
+
+    private static int itemPower(int item) {
+        return Math.max(0, item - 1) % 1_000;
+    }
+
+    private static int rarityFromPower(int power) {
+        if (power >= 100) {
+            return 3;
+        }
+        if (power >= 45) {
+            return 2;
+        }
+        return power >= 15 ? 1 : 0;
+    }
+
+    private static int salvageValue(int item) {
+        return Math.max(8, itemPower(item) * 2 + itemRarity(item) * 12);
+    }
+
+    private static String slotName(int slot) {
+        return slot == 0 ? "무기" : slot == 1 ? "갑옷" : "혈석";
+    }
+
+    private static String itemName(int slot, int rarity) {
+        String[][] names = {
+                {"낡은 혈검", "월식 혈검", "왕가의 혈검", "시조의 혈검"},
+                {"그림자 외투", "밤안개 외투", "혈족 군주복", "불멸의 장막"},
+                {"응결 혈석", "푸른 혈석", "혈월의 눈", "녹스의 심장"}
+        };
+        return names[RpgRules.clamp(slot, 0, 2)][RpgRules.clamp(rarity, 0, 3)];
+    }
+
+    private static String itemEffect(int slot, int power) {
+        return (slot == 0 ? "공격 +" : slot == 1 ? "방어 +" : "혈기 +") + power;
     }
 
     private int combatPower() {
