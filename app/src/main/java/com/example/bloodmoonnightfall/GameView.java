@@ -219,6 +219,8 @@ public final class GameView extends View {
     private boolean spearPressed;
     private boolean siphonPressed;
     private boolean novaPressed;
+    private int queuedSkillAction = ACTION_NONE;
+    private float queuedSkillTimer;
     private int leftPointer = -1;
     private int rightPointer = -1;
 
@@ -401,6 +403,10 @@ public final class GameView extends View {
         spearCooldown = Math.max(0f, spearCooldown - dt);
         siphonCooldown = Math.max(0f, siphonCooldown - dt);
         novaCooldown = Math.max(0f, novaCooldown - dt);
+        queuedSkillTimer = Math.max(0f, queuedSkillTimer - dt);
+        if (queuedSkillTimer <= 0f) {
+            queuedSkillAction = ACTION_NONE;
+        }
 
         if (saveDirty) {
             saveDelay -= dt;
@@ -459,17 +465,29 @@ public final class GameView extends View {
         if (hero.dead || waveComplete) {
             return;
         }
+        if (spearPressed) {
+            bufferSkill(ACTION_SPEAR);
+        }
+        if (siphonPressed) {
+            bufferSkill(ACTION_SIPHON);
+        }
+        if (novaPressed) {
+            bufferSkill(ACTION_NOVA);
+        }
         if (dashPressed && (heroAction == ACTION_NONE || heroAction == ACTION_ATTACK)) {
             startDash();
         }
-        if (spearPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-            tryStartSpear();
-        }
-        if (siphonPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-            tryStartSiphon();
-        }
-        if (novaPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-            tryStartNova();
+        if (queuedSkillAction != ACTION_NONE && hero.dashTimer <= 0f) {
+            if (heroAction == ACTION_NONE) {
+                startQueuedSkill();
+            } else if (heroAction == ACTION_ATTACK && heroActionTriggered
+                    && canStartQueuedSkill()) {
+                heroAction = ACTION_NONE;
+                heroActionTimer = 0f;
+                comboQueued = false;
+                comboGrace = 0f;
+                startQueuedSkill();
+            }
         }
         if (heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
             Enemy target = nearestEnemy(1000f);
@@ -480,6 +498,40 @@ public final class GameView extends View {
                 }
             }
         }
+    }
+
+    private void bufferSkill(int action) {
+        queuedSkillAction = action;
+        queuedSkillTimer = 0.42f;
+    }
+
+    private void startQueuedSkill() {
+        int action = queuedSkillAction;
+        queuedSkillAction = ACTION_NONE;
+        queuedSkillTimer = 0f;
+        if (action == ACTION_SPEAR) {
+            tryStartSpear();
+        } else if (action == ACTION_SIPHON) {
+            tryStartSiphon();
+        } else if (action == ACTION_NOVA) {
+            tryStartNova();
+        }
+    }
+
+    private boolean canStartQueuedSkill() {
+        if (queuedSkillAction == ACTION_SPEAR) {
+            return spearCooldown <= 0f && heroBlood >= 20f;
+        }
+        if (queuedSkillAction == ACTION_SIPHON) {
+            return progress.level >= 4 && progress.siphonLevel > 0
+                    && siphonCooldown <= 0f && heroBlood >= 30f
+                    && nearestEnemy(330f) != null;
+        }
+        if (queuedSkillAction == ACTION_NOVA) {
+            return progress.level >= 7 && progress.novaLevel > 0
+                    && novaCooldown <= 0f && heroBlood >= 55f;
+        }
+        return false;
     }
 
     private void startDash() {
@@ -499,9 +551,9 @@ public final class GameView extends View {
     private void startAttack(int nextCombo) {
         comboIndex = RpgRules.clamp(nextCombo, 0, 2);
         heroAction = ACTION_ATTACK;
-        heroActionDuration = comboIndex == 2 ? 0.52f : 0.38f;
+        heroActionDuration = comboIndex == 0 ? 0.27f : comboIndex == 1 ? 0.29f : 0.39f;
         heroActionTimer = heroActionDuration;
-        heroActionTrigger = comboIndex == 2 ? 0.27f : 0.18f;
+        heroActionTrigger = comboIndex == 0 ? 0.08f : comboIndex == 1 ? 0.09f : 0.13f;
         heroActionTriggered = false;
         comboQueued = false;
         Enemy target = nearestEnemy(230f);
@@ -525,7 +577,7 @@ public final class GameView extends View {
         }
         heroBlood -= 20f;
         spearCooldown = 0.9f;
-        startHeroSkill(ACTION_SPEAR, 0.56f, 0.29f);
+        startHeroSkill(ACTION_SPEAR, 0.38f, 0.11f);
     }
 
     private void tryStartSiphon() {
@@ -549,7 +601,7 @@ public final class GameView extends View {
         hero.facing = target.x >= hero.x ? 1 : -1;
         heroBlood -= 30f;
         siphonCooldown = 4.8f;
-        startHeroSkill(ACTION_SIPHON, 0.72f, 0.37f);
+        startHeroSkill(ACTION_SIPHON, 0.49f, 0.15f);
     }
 
     private void tryStartNova() {
@@ -567,7 +619,7 @@ public final class GameView extends View {
         }
         heroBlood -= 55f;
         novaCooldown = 7.5f;
-        startHeroSkill(ACTION_NOVA, 0.88f, 0.48f);
+        startHeroSkill(ACTION_NOVA, 0.64f, 0.22f);
     }
 
     private void startHeroSkill(int action, float duration, float trigger) {
@@ -601,7 +653,7 @@ public final class GameView extends View {
                 int finished = heroAction;
                 heroAction = ACTION_NONE;
                 if (finished == ACTION_ATTACK) {
-                    comboGrace = 0.3f;
+                    comboGrace = 0.22f;
                     comboDisplayTimer = 0.8f;
                     if (comboQueued && comboIndex < 2) {
                         startAttack(comboIndex + 1);
@@ -619,7 +671,8 @@ public final class GameView extends View {
                 hero.velocity *= 0.28f;
             }
         } else {
-            float movementMultiplier = heroAction == ACTION_NONE ? 1f : 0.32f;
+            float movementMultiplier = heroAction == ACTION_NONE ? 1f
+                    : heroAction == ACTION_ATTACK ? 0.62f : 0.16f;
             Enemy target = nearestEnemy(1000f);
             float desired = 0f;
             if (target == null) {
@@ -689,7 +742,7 @@ public final class GameView extends View {
                 addBloodTether(target.x, GROUND_Y - 112f, hero.x, GROUND_Y - 112f);
                 addSkillEffect(FX_SPEAR_IMPACT, target.x, GROUND_Y - 108f,
                         hero.x, GROUND_Y - 112f, CRIMSON, 0.42f, 108f, hero.facing);
-                hitStop = Math.max(hitStop, 0.085f);
+                hitStop = Math.max(hitStop, 0.055f);
                 cameraZoomPulse = Math.max(cameraZoomPulse, 0.018f);
                 skillBloom = Math.max(skillBloom, 0.48f);
                 floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 230f,
@@ -714,7 +767,7 @@ public final class GameView extends View {
             impactHeavy = true;
             impactFlash = Math.max(impactFlash, 0.96f);
             screenShake = Math.max(screenShake, 22f);
-            hitStop = hits > 0 ? 0.13f : 0.055f;
+            hitStop = hits > 0 ? 0.09f : 0.035f;
             cameraKickY = -10f;
             cameraZoomPulse = Math.max(cameraZoomPulse, 0.038f);
             skillBloom = 1f;
@@ -1101,7 +1154,7 @@ public final class GameView extends View {
         cameraKickX = -direction * (killed ? 17f : heavy ? 11f : 5f);
         cameraKickY = major ? -5f : -2f;
         screenShake = Math.max(screenShake, killed ? 16f : heavy ? 11f : 5.5f);
-        hitStop = Math.max(hitStop, killed ? 0.095f : heavy ? 0.072f : 0.032f);
+        hitStop = Math.max(hitStop, killed ? 0.072f : heavy ? 0.048f : 0.022f);
         addImpactBurst(x, y, direction, major ? 22 : 12, major ? 320f : 210f);
         audio.playHit(heavy, killed, comboIndex);
         performHapticFeedback(major
@@ -1117,7 +1170,7 @@ public final class GameView extends View {
         cameraKickX = -direction * 13f;
         cameraKickY = -5f;
         screenShake = Math.max(screenShake, 13f);
-        hitStop = Math.max(hitStop, 0.075f);
+        hitStop = Math.max(hitStop, 0.06f);
         addImpactBurst(x, y, direction, 20, 280f);
         audio.playPlayerHurt();
     }
@@ -1334,6 +1387,8 @@ public final class GameView extends View {
         hero.velocity = 0f;
         hero.facing = 1;
         heroAction = ACTION_NONE;
+        queuedSkillAction = ACTION_NONE;
+        queuedSkillTimer = 0f;
         comboQueued = false;
         if (fullRestore) {
             heroHealth = heroMaxHealth;
@@ -1892,25 +1947,25 @@ public final class GameView extends View {
                     firstColumn = 0;
                     secondRow = 2;
                     secondColumn = 0;
-                    blend = smootherStep(actionProgress / Math.max(0.01f, contact));
+                    blend = easeOutCubic(actionProgress / Math.max(0.01f, contact));
                 } else {
                     firstRow = 2;
                     firstColumn = 0;
                     secondRow = 2;
                     secondColumn = 1;
-                    blend = smootherStep((actionProgress - contact)
+                    blend = easeOutCubic((actionProgress - contact)
                             / Math.max(0.01f, 1f - contact));
                 }
             } else if (comboIndex == 1) {
                 firstRow = secondRow = 2;
                 firstColumn = 1;
                 secondColumn = 2;
-                blend = smootherStep(actionProgress);
+                blend = easeOutCubic(actionProgress);
             } else if (actionProgress < 0.72f) {
                 firstRow = secondRow = 2;
                 firstColumn = 2;
                 secondColumn = 3;
-                blend = smootherStep(actionProgress / 0.72f);
+                blend = easeOutCubic(actionProgress / 0.72f);
             } else {
                 firstRow = 2;
                 firstColumn = 3;
@@ -1950,7 +2005,7 @@ public final class GameView extends View {
                 firstColumn = 0;
                 secondRow = 3;
                 secondColumn = skillColumn;
-                blend = smootherStep(actionProgress / 0.3f);
+                blend = easeOutCubic(actionProgress / 0.3f);
             } else if (actionProgress < 0.8f) {
                 firstRow = secondRow = 3;
                 firstColumn = secondColumn = skillColumn;
@@ -2523,11 +2578,14 @@ public final class GameView extends View {
 
         drawControlButton(canvas, 92f, 1130f, 57f, "✦", "개입 대시", false,
                 0f, true, Color.rgb(70, 83, 112));
-        drawControlButton(canvas, 292f, 1130f, 60f, "血", "혈창 20", false,
+        drawControlButton(canvas, 292f, 1130f, 60f, "血", "혈창 20",
+                queuedSkillAction == ACTION_SPEAR,
                 spearCooldown / 0.9f, true, Color.rgb(154, 24, 58));
-        drawControlButton(canvas, 463f, 1130f, 60f, "吸", "흡혈 30", false,
+        drawControlButton(canvas, 463f, 1130f, 60f, "吸", "흡혈 30",
+                queuedSkillAction == ACTION_SIPHON,
                 siphonCooldown / 4.8f, progress.level >= 4, Color.rgb(38, 119, 144));
-        drawControlButton(canvas, 630f, 1130f, 60f, "月", "폭발 55", false,
+        drawControlButton(canvas, 630f, 1130f, 60f, "月", "폭발 55",
+                queuedSkillAction == ACTION_NOVA,
                 novaCooldown / 7.5f, progress.level >= 7, Color.rgb(115, 53, 149));
 
         if (comboDisplayTimer > 0f && comboIndex > 0) {
@@ -2704,7 +2762,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.3.0 DEMO  ·  MOTION REBUILD", 360f, 1120f, textPaint);
+        canvas.drawText("v4.4.0 DEMO  ·  FAST RESPONSE", 360f, 1120f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -3317,10 +3375,13 @@ public final class GameView extends View {
             dashPressed = true;
         } else if (insideCircle(x, y, 292f, 1130f, 70f)) {
             spearPressed = true;
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         } else if (insideCircle(x, y, 463f, 1130f, 70f)) {
             siphonPressed = true;
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         } else if (insideCircle(x, y, 630f, 1130f, 70f)) {
             novaPressed = true;
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         }
     }
 
@@ -3488,6 +3549,8 @@ public final class GameView extends View {
         rightPointer = -1;
         leftHeld = false;
         rightHeld = false;
+        queuedSkillAction = ACTION_NONE;
+        queuedSkillTimer = 0f;
         consumeOneShotInput();
     }
 
@@ -3657,6 +3720,11 @@ public final class GameView extends View {
     private static float smootherStep(float value) {
         float t = RpgRules.clamp(value, 0f, 1f);
         return t * t * t * (t * (t * 6f - 15f) + 10f);
+    }
+
+    private static float easeOutCubic(float value) {
+        float t = 1f - RpgRules.clamp(value, 0f, 1f);
+        return 1f - t * t * t;
     }
 
     private static float cubicBezier(float start, float control1, float control2,
