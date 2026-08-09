@@ -9,6 +9,15 @@ package com.example.bloodmoonnightfall;
 public final class GameUiLayout {
     public static final float LOGICAL_HEIGHT = 1280f;
 
+    public static final float HUD_AUXILIARY_BOTTOM = 286f;
+    public static final float STORY_ROUTE_TOP = 296f;
+    public static final float STORY_ROUTE_BOTTOM = 354f;
+    public static final float HIT_COUNTER_RIGHT = 190f;
+    public static final float COMBAT_NARRATIVE_LEFT = 204f;
+    public static final float COMBAT_NARRATIVE_RIGHT = 702f;
+    public static final float COMBAT_NARRATIVE_TOP = 368f;
+    public static final float COMBAT_NARRATIVE_BOTTOM = 462f;
+
     public static final float AUTO_BATTLE_LEFT = 28f;
     public static final float AUTO_BATTLE_TOP = 958f;
     public static final float AUTO_BATTLE_RIGHT = 692f;
@@ -42,5 +51,12 @@ public final class GameUiLayout {
         return autoTop - AUTO_BATTLE_BOTTOM >= MIN_SECTION_GAP
                 && autoToManualRowGap() >= MIN_CONTROL_ROW_GAP
                 && labelBottom <= LOGICAL_HEIGHT - BOTTOM_SAFE_MARGIN;
+    }
+
+    public static boolean combatStoryPanelsAreSeparated() {
+        return STORY_ROUTE_TOP - HUD_AUXILIARY_BOTTOM >= MIN_SECTION_GAP
+                && COMBAT_NARRATIVE_TOP - STORY_ROUTE_BOTTOM >= MIN_SECTION_GAP
+                && COMBAT_NARRATIVE_LEFT - HIT_COUNTER_RIGHT >= MIN_SECTION_GAP
+                && COMBAT_NARRATIVE_BOTTOM < AUTO_BATTLE_TOP;
     }
 }

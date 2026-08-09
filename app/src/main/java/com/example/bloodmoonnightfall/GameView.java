@@ -225,6 +225,13 @@ public final class GameView extends View {
     private float skillCalloutDuration;
     private String skillCalloutText = "";
     private int skillCalloutColor = CRIMSON;
+    private float combatNarrativeTimer;
+    private float combatNarrativeDuration;
+    private float combatNarrativeDelay;
+    private String combatNarrativeSpeaker = "";
+    private String combatNarrativeLine = "";
+    private CombatStory.Beat pendingCombatNarrative;
+    private boolean midpointNarrativeShown;
     private float toastTimer;
     private String toastText = "";
 
@@ -553,6 +560,7 @@ public final class GameView extends View {
         skillBloom = Math.max(0f, skillBloom - dt * 3.1f);
         bossIntroTimer = Math.max(0f, bossIntroTimer - dt);
         skillCalloutTimer = Math.max(0f, skillCalloutTimer - dt);
+        updateCombatNarrative(dt);
         hitComboPulse = Math.max(0f, hitComboPulse - dt * 4.8f);
         if (hitComboTimer > 0f) {
             hitComboTimer = Math.max(0f, hitComboTimer - dt);
@@ -1777,6 +1785,12 @@ public final class GameView extends View {
         progress.gold += gold + chainBonus;
         progress.kills++;
         defeatedThisWave++;
+        if (!midpointNarrativeShown
+                && defeatedThisWave >= Math.max(1, waveTarget / 2)
+                && queueCombatNarrative(
+                CombatStory.midpoint(progress.region, progress.wave), 0.42f)) {
+            midpointNarrativeShown = true;
+        }
         heroBlood = Math.min(heroMaxBlood, heroBlood + 7f);
         floatingTexts.add(new FloatingText(enemy.x, GROUND_Y - 260f,
                 "+" + xp + " XP  ·  +" + gold + " G", GOLD, 1.35f));
@@ -2034,12 +2048,21 @@ public final class GameView extends View {
         hitComboPulse = 0f;
         bossIntroTimer = 0f;
         skillCalloutTimer = 0f;
+        combatNarrativeTimer = 0f;
+        combatNarrativeDuration = 0f;
+        combatNarrativeDelay = 0f;
+        combatNarrativeSpeaker = "";
+        combatNarrativeLine = "";
+        pendingCombatNarrative = null;
+        midpointNarrativeShown = false;
         spawnSerial = 0;
         nextEnemyId = 1;
         spawnTimer = 0.18f;
         waveComplete = false;
         waveClearTimer = 0f;
         waveBannerTimer = 2.2f;
+        queueCombatNarrative(CombatStory.opening(progress.region, progress.wave,
+                progress.chapterClears), 2.45f);
         hero.dead = false;
         hero.deadTimer = 0f;
         hero.invulnerability = 0.55f;
@@ -2232,6 +2255,50 @@ public final class GameView extends View {
                 iterator.remove();
             }
         }
+    }
+
+    private void updateCombatNarrative(float dt) {
+        if (bossIntroTimer > 0f) {
+            return;
+        }
+        if (combatNarrativeTimer > 0f) {
+            combatNarrativeTimer = Math.max(0f, combatNarrativeTimer - dt);
+        }
+        if (pendingCombatNarrative == null) {
+            return;
+        }
+        combatNarrativeDelay = Math.max(0f, combatNarrativeDelay - dt);
+        if (combatNarrativeDelay > 0f || combatNarrativeTimer > 0f) {
+            return;
+        }
+        combatNarrativeSpeaker = pendingCombatNarrative.speaker;
+        combatNarrativeLine = pendingCombatNarrative.line;
+        combatNarrativeDuration = 4.35f;
+        combatNarrativeTimer = combatNarrativeDuration;
+        pendingCombatNarrative = null;
+    }
+
+    private boolean queueCombatNarrative(CombatStory.Beat beat, float delay) {
+        if (beat == null || pendingCombatNarrative != null) {
+            return false;
+        }
+        pendingCombatNarrative = beat;
+        combatNarrativeDelay = Math.max(0f, delay)
+                + Math.max(0f, combatNarrativeTimer);
+        return true;
+    }
+
+    private static int narrativeAccent(String speaker) {
+        if (CombatStory.RIAN.equals(speaker)) {
+            return CYAN;
+        }
+        if (CombatStory.NOX.equals(speaker)) {
+            return VIOLET;
+        }
+        if (CombatStory.KAEL.equals(speaker)) {
+            return CRIMSON;
+        }
+        return GOLD;
     }
 
     private void addImpactEffect(float x, float y, float direction, int style) {
@@ -2438,10 +2505,12 @@ public final class GameView extends View {
             drawHud(canvas);
             if (screen == Screen.PLAYING) {
                 drawControls(canvas);
+                drawSealRoadmap(canvas);
             }
             drawBanners(canvas);
             if (screen == Screen.PLAYING) {
                 drawHitCounter(canvas);
+                drawCombatNarrative(canvas);
                 drawSkillCallout(canvas);
                 drawBossIntro(canvas);
             }
@@ -3827,6 +3896,161 @@ public final class GameView extends View {
         textPaint.setStyle(Paint.Style.FILL);
     }
 
+    private void drawSealRoadmap(Canvas canvas) {
+        RectF bounds = new RectF(18f, GameUiLayout.STORY_ROUTE_TOP,
+                702f, GameUiLayout.STORY_ROUTE_BOTTOM);
+        paint.setColor(Color.argb(208, 6, 8, 17));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor(Color.argb(105, 210, 172, 92));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(12f);
+        textPaint.setLetterSpacing(0.12f);
+        textPaint.setColor(GOLD);
+        canvas.drawText("BLOOD SEAL", 36f, 316f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setColor(Color.rgb(206, 211, 224));
+        canvas.drawText(CombatStory.sealObjective(progress.region), 36f, 340f, textPaint);
+
+        int clearedCount = progress.wave - 1 + (waveComplete ? 1 : 0);
+        float firstX = 298f;
+        float step = 78f;
+        float centerY = 325f;
+        paint.setStrokeWidth(3f);
+        for (int index = 0; index < CombatStory.WAVE_COUNT - 1; index++) {
+            float fromX = firstX + index * step;
+            boolean passed = index < clearedCount;
+            paint.setColor(withAlpha(passed ? CRIMSON : Color.rgb(80, 86, 103),
+                    passed ? 190 : 125));
+            canvas.drawRect(fromX + 12f, centerY - 1.5f,
+                    fromX + step - 12f, centerY + 1.5f, paint);
+        }
+        for (int index = 0; index < CombatStory.WAVE_COUNT; index++) {
+            float x = firstX + index * step;
+            boolean completed = index < clearedCount;
+            boolean current = index == clearedCount && clearedCount < CombatStory.WAVE_COUNT;
+            int nodeColor = completed ? CRIMSON : current ? GOLD : Color.rgb(84, 91, 108);
+            if (current) {
+                float pulse = 0.5f + 0.5f * (float) Math.sin(ambientClock * 5.5f);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(withAlpha(GOLD, Math.round(100f + pulse * 100f)));
+                canvas.drawCircle(x, centerY, 15f + pulse * 2f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+            paint.setColor(withAlpha(nodeColor, completed || current ? 235 : 135));
+            if (index == CombatStory.WAVE_COUNT - 1) {
+                effectPath.reset();
+                effectPath.moveTo(x, centerY - 12f);
+                effectPath.lineTo(x + 12f, centerY);
+                effectPath.lineTo(x, centerY + 12f);
+                effectPath.lineTo(x - 12f, centerY);
+                effectPath.close();
+                canvas.drawPath(effectPath, paint);
+            } else {
+                canvas.drawCircle(x, centerY, 11f, paint);
+            }
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            textPaint.setTypeface(uiBoldTypeface);
+            textPaint.setTextSize(index == CombatStory.WAVE_COUNT - 1 ? 9f : 11f);
+            textPaint.setColor(completed || current ? Color.WHITE : Color.rgb(150, 155, 168));
+            canvas.drawText(index == CombatStory.WAVE_COUNT - 1 ? "B" : Integer.toString(index + 1),
+                    x, centerY + 4f, textPaint);
+        }
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawCombatNarrative(Canvas canvas) {
+        if (combatNarrativeTimer <= 0f || combatNarrativeLine.isEmpty()
+                || bossIntroTimer > 0f || waveBannerTimer > 0f) {
+            return;
+        }
+        float progress = 1f - combatNarrativeTimer
+                / Math.max(0.01f, combatNarrativeDuration);
+        float fade = smootherStep(RpgRules.clamp(progress / 0.14f, 0f, 1f))
+                * smootherStep(RpgRules.clamp(combatNarrativeTimer / 0.28f, 0f, 1f));
+        float slide = 24f * (1f - easeOutCubic(
+                RpgRules.clamp(progress / 0.22f, 0f, 1f)));
+        int accent = narrativeAccent(combatNarrativeSpeaker);
+        float left = GameUiLayout.COMBAT_NARRATIVE_LEFT + slide;
+        float top = GameUiLayout.COMBAT_NARRATIVE_TOP;
+        float right = GameUiLayout.COMBAT_NARRATIVE_RIGHT + slide;
+        float bottom = GameUiLayout.COMBAT_NARRATIVE_BOTTOM;
+
+        paint.setShader(new LinearGradient(left, 0f, right, 0f,
+                new int[]{withAlpha(Color.rgb(5, 7, 15), Math.round(238f * fade)),
+                        withAlpha(darken(accent, 0.48f), Math.round(218f * fade)),
+                        withAlpha(Color.rgb(5, 7, 15), Math.round(226f * fade))},
+                new float[]{0f, 0.58f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(new RectF(left, top, right, bottom), 18f, 18f, paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(withAlpha(accent, Math.round(168f * fade)));
+        canvas.drawRoundRect(new RectF(left, top, right, bottom), 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        float markX = left + 30f;
+        float markY = (top + bottom) * 0.5f;
+        paint.setColor(withAlpha(accent, Math.round(230f * fade)));
+        effectPath.reset();
+        effectPath.moveTo(markX, markY - 14f);
+        effectPath.lineTo(markX + 12f, markY);
+        effectPath.lineTo(markX, markY + 14f);
+        effectPath.lineTo(markX - 12f, markY);
+        effectPath.close();
+        canvas.drawPath(effectPath, paint);
+
+        float textLeft = left + 56f;
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setLetterSpacing(0.08f);
+        textPaint.setColor(withAlpha(accent, Math.round(245f * fade)));
+        canvas.drawText("피의 기억  ·  " + combatNarrativeSpeaker,
+                textLeft, top + 27f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(18f);
+        textPaint.setColor(withAlpha(Color.rgb(236, 239, 246), Math.round(255f * fade)));
+        drawCompactWrappedText(canvas, combatNarrativeLine,
+                textLeft, top + 57f, right - textLeft - 20f, 24f, 2);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawCompactWrappedText(Canvas canvas, String text, float left, float top,
+                                        float width, float lineHeight, int maximumLines) {
+        int start = 0;
+        int line = 0;
+        while (start < text.length() && line < maximumLines) {
+            int count = textPaint.breakText(text, start, text.length(), true, width, null);
+            if (count <= 0) {
+                break;
+            }
+            int end = Math.min(text.length(), start + count);
+            if (end < text.length()) {
+                int space = text.lastIndexOf(' ', end - 1);
+                if (space > start) {
+                    end = space;
+                }
+            }
+            canvas.drawText(text.substring(start, end).trim(), left,
+                    top + line * lineHeight, textPaint);
+            start = end;
+            while (start < text.length() && text.charAt(start) == ' ') {
+                start++;
+            }
+            line++;
+        }
+    }
+
     private void drawHitCounter(Canvas canvas) {
         if (hitCombo < 2 || hitComboTimer <= 0f) {
             return;
@@ -3857,33 +4081,37 @@ public final class GameView extends View {
     }
 
     private void drawSkillCallout(Canvas canvas) {
-        if (skillCalloutTimer <= 0f || skillCalloutText.isEmpty()) {
+        if (skillCalloutTimer <= 0f || skillCalloutText.isEmpty()
+                || combatNarrativeTimer > 0f || bossIntroTimer > 0f
+                || waveBannerTimer > 0f) {
             return;
         }
         float progress = 1f - skillCalloutTimer / Math.max(0.01f, skillCalloutDuration);
         float fade = smootherStep(RpgRules.clamp(progress / 0.18f, 0f, 1f))
                 * smootherStep(RpgRules.clamp(skillCalloutTimer / 0.18f, 0f, 1f));
         float slide = 22f - easeOutCubic(RpgRules.clamp(progress / 0.28f, 0f, 1f)) * 18f;
-        paint.setShader(new LinearGradient(18f, 0f, 390f, 0f,
+        float left = GameUiLayout.COMBAT_NARRATIVE_LEFT;
+        float right = GameUiLayout.COMBAT_NARRATIVE_RIGHT;
+        paint.setShader(new LinearGradient(left, 0f, right, 0f,
                 new int[]{withAlpha(Color.rgb(5, 7, 15), Math.round(220f * fade)),
                         withAlpha(skillCalloutColor, Math.round(82f * fade)),
                         Color.TRANSPARENT},
                 new float[]{0f, 0.42f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(18f, 248f, 405f, 320f, paint);
+        canvas.drawRect(left, 368f, right, 440f, paint);
         paint.setShader(null);
         paint.setColor(withAlpha(skillCalloutColor, Math.round(230f * fade)));
-        canvas.drawRect(24f, 254f, 29f, 314f, paint);
+        canvas.drawRect(left + 6f, 374f, left + 11f, 434f, paint);
         textPaint.setTextAlign(Paint.Align.LEFT);
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(13f);
         textPaint.setLetterSpacing(0.14f);
         textPaint.setColor(withAlpha(Color.rgb(215, 220, 232), Math.round(220f * fade)));
-        canvas.drawText("BLOOD ART", 42f + slide, 274f, textPaint);
+        canvas.drawText("BLOOD ART", left + 24f + slide, 394f, textPaint);
         textPaint.setLetterSpacing(0f);
         textPaint.setTypeface(titleTypeface);
         textPaint.setTextSize(29f);
         textPaint.setColor(withAlpha(Color.WHITE, Math.round(255f * fade)));
-        drawTextWithShadow(canvas, skillCalloutText, 42f + slide, 307f, textPaint);
+        drawTextWithShadow(canvas, skillCalloutText, left + 24f + slide, 427f, textPaint);
         textPaint.setTextAlign(Paint.Align.CENTER);
     }
 
@@ -4364,7 +4592,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.15.0 DEMO  ·  IMPACT", 360f, 1120f, textPaint);
+        canvas.drawText("v4.16.0 DEMO  ·  BLOOD MEMORY", 360f, 1120f, textPaint);
     }
 
     private void drawOfflineReward(Canvas canvas) {
