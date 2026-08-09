@@ -122,6 +122,7 @@ public final class GameView extends View {
     private boolean bossAtlasLoadAttempted;
 
     private final RpgProgressStore progressStore;
+    private final GameAudio audio;
     private RpgProgress progress;
     private boolean continueAvailable;
 
@@ -142,6 +143,13 @@ public final class GameView extends View {
     private float hitStop;
     private float screenShake;
     private float damageFlash;
+    private float impactFlash;
+    private float impactX;
+    private float impactY;
+    private float impactDirection = 1f;
+    private float cameraKickX;
+    private float cameraKickY;
+    private boolean impactHeavy;
     private float toastTimer;
     private String toastText = "";
 
@@ -214,6 +222,7 @@ public final class GameView extends View {
         setFocusable(true);
         setClickable(true);
         progressStore = new RpgProgressStore(context);
+        audio = new GameAudio(context);
         RpgProgress loaded = progressStore.load();
         continueAvailable = loaded != null;
         progress = loaded == null ? RpgProgress.fresh() : loaded;
@@ -338,6 +347,9 @@ public final class GameView extends View {
     private void updateMenuEffects(float dt) {
         screenShake = Math.max(0f, screenShake - dt * 22f);
         damageFlash = Math.max(0f, damageFlash - dt * 2.6f);
+        impactFlash = Math.max(0f, impactFlash - dt * 12f);
+        cameraKickX = approach(cameraKickX, 0f, 180f * dt);
+        cameraKickY = approach(cameraKickY, 0f, 180f * dt);
         toastTimer = Math.max(0f, toastTimer - dt);
         updateParticles(dt * 0.35f);
         updateFloatingTexts(dt);
@@ -350,6 +362,9 @@ public final class GameView extends View {
         toastTimer = Math.max(0f, toastTimer - dt);
         screenShake = Math.max(0f, screenShake - dt * 26f);
         damageFlash = Math.max(0f, damageFlash - dt * 3.2f);
+        impactFlash = Math.max(0f, impactFlash - dt * 14f);
+        cameraKickX = approach(cameraKickX, 0f, 260f * dt);
+        cameraKickY = approach(cameraKickY, 0f, 230f * dt);
         comboGrace = Math.max(0f, comboGrace - dt);
         comboDisplayTimer = Math.max(0f, comboDisplayTimer - dt);
         spearCooldown = Math.max(0f, spearCooldown - dt);
@@ -444,6 +459,7 @@ public final class GameView extends View {
         heroAction = ACTION_NONE;
         comboQueued = false;
         addBurst(hero.x, GROUND_Y - 86f, Color.argb(205, 181, 25, 60), 12, 185f);
+        audio.playDash();
         performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
 
@@ -622,6 +638,7 @@ public final class GameView extends View {
             projectile.color = CRIMSON;
             projectiles.add(projectile);
             addBurst(projectile.x, projectile.y, CRIMSON, 16, 210f);
+            audio.playBloodSpear();
         } else if (heroAction == ACTION_SIPHON) {
             Enemy target = nearestEnemy(350f);
             if (target != null) {
@@ -633,6 +650,7 @@ public final class GameView extends View {
                 addBloodTether(target.x, GROUND_Y - 112f, hero.x, GROUND_Y - 112f);
                 floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 230f,
                         "+" + Math.round(healed), CYAN, 1.05f));
+                audio.playSiphon();
             }
         } else if (heroAction == ACTION_NOVA) {
             int hits = 0;
@@ -646,6 +664,7 @@ public final class GameView extends View {
             addNovaBurst(hero.x, GROUND_Y - 90f, 255f);
             screenShake = Math.max(screenShake, 13f);
             hitStop = hits > 0 ? 0.075f : 0.025f;
+            audio.playNova();
         }
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
@@ -950,16 +969,19 @@ public final class GameView extends View {
         }
         int applied = Math.max(1, amount);
         enemy.health = Math.max(0f, enemy.health - applied);
-        enemy.hurtTimer = heavy ? 0.23f : 0.14f;
+        boolean killed = enemy.health <= 0f;
+        enemy.hurtTimer = heavy || killed ? 0.27f : 0.16f;
         enemy.invulnerability = 0.04f;
         float direction = enemy.x >= hero.x ? 1f : -1f;
-        enemy.velocity += direction * knockback;
+        enemy.velocity += direction * knockback * (killed ? 1.32f : heavy ? 1.18f : 1f);
+        if (heroAction == ACTION_ATTACK) {
+            hero.velocity -= direction * (heavy ? 42f : 24f);
+        }
         floatingTexts.add(new FloatingText(enemy.x, GROUND_Y - 210f,
                 "-" + applied, heavy ? GOLD : Color.WHITE, 0.9f));
         addBurst(enemy.x, GROUND_Y - 106f, CRIMSON, heavy ? 18 : 10, heavy ? 230f : 155f);
-        screenShake = Math.max(screenShake, heavy ? 9f : 4f);
-        hitStop = Math.max(hitStop, heavy ? 0.055f : 0.025f);
-        if (enemy.health <= 0f) {
+        registerEnemyImpact(enemy.x, GROUND_Y - 104f, direction, heavy, killed);
+        if (killed) {
             enemy.dead = true;
             enemy.deadTimer = enemy.kind == RpgRules.ENEMY_BOSS ? 1.15f : 0.68f;
             enemy.actionTimer = 0f;
@@ -980,11 +1002,10 @@ public final class GameView extends View {
         float direction = hero.x >= sourceX ? 1f : -1f;
         hero.velocity = direction * knockback;
         damageFlash = Math.min(1f, damageFlash + 0.72f);
-        screenShake = Math.max(screenShake, 11f);
-        hitStop = Math.max(hitStop, 0.06f);
         floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 230f,
                 "-" + amount, Color.rgb(255, 104, 120), 1f));
         addBurst(hero.x, GROUND_Y - 108f, CRIMSON, 18, 210f);
+        registerHeroImpact(hero.x, GROUND_Y - 110f, direction);
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         if (heroHealth <= 0f) {
             hero.dead = true;
@@ -992,6 +1013,38 @@ public final class GameView extends View {
             hero.velocity = direction * 170f;
             resetPointers();
         }
+    }
+
+    private void registerEnemyImpact(float x, float y, float direction,
+                                     boolean heavy, boolean killed) {
+        boolean major = heavy || killed;
+        impactX = x;
+        impactY = y;
+        impactDirection = direction;
+        impactHeavy = major;
+        impactFlash = Math.max(impactFlash, killed ? 1f : heavy ? 0.82f : 0.48f);
+        cameraKickX = -direction * (killed ? 17f : heavy ? 11f : 5f);
+        cameraKickY = major ? -5f : -2f;
+        screenShake = Math.max(screenShake, killed ? 16f : heavy ? 11f : 5.5f);
+        hitStop = Math.max(hitStop, killed ? 0.095f : heavy ? 0.072f : 0.032f);
+        addImpactBurst(x, y, direction, major ? 22 : 12, major ? 320f : 210f);
+        audio.playHit(heavy, killed, comboIndex);
+        performHapticFeedback(major
+                ? HapticFeedbackConstants.LONG_PRESS : HapticFeedbackConstants.VIRTUAL_KEY);
+    }
+
+    private void registerHeroImpact(float x, float y, float direction) {
+        impactX = x;
+        impactY = y;
+        impactDirection = direction;
+        impactHeavy = true;
+        impactFlash = Math.max(impactFlash, 0.88f);
+        cameraKickX = -direction * 13f;
+        cameraKickY = -5f;
+        screenShake = Math.max(screenShake, 13f);
+        hitStop = Math.max(hitStop, 0.075f);
+        addImpactBurst(x, y, direction, 20, 280f);
+        audio.playPlayerHurt();
     }
 
     private void rewardEnemy(Enemy enemy) {
@@ -1041,6 +1094,7 @@ public final class GameView extends View {
             }
             levelBannerTimer = 2.8f;
             addNovaBurst(hero.x, GROUND_Y - 100f, 210f);
+            audio.playLevelUp();
             saveNow();
         }
     }
@@ -1117,6 +1171,7 @@ public final class GameView extends View {
     }
 
     private void startNewAdventure() {
+        audio.playUiTap();
         progressStore.clear();
         progress = RpgProgress.fresh();
         continueAvailable = true;
@@ -1125,6 +1180,7 @@ public final class GameView extends View {
     }
 
     private void continueAdventure() {
+        audio.playUiTap();
         RpgProgress loaded = progressStore.load();
         progress = loaded == null ? RpgProgress.fresh() : loaded;
         progress.normalizeUnlocks();
@@ -1156,6 +1212,7 @@ public final class GameView extends View {
         if (screen != Screen.STORY) {
             return;
         }
+        audio.playUiTap();
         storyLine++;
         if (storyLine < STORY_LINES[storyChapter].length) {
             performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
@@ -1298,6 +1355,7 @@ public final class GameView extends View {
         syncHeroStats(false);
         showToast("강화 완료  ·  전투력이 상승했습니다", 1.5f);
         addBurst(hero.x, GROUND_Y - 110f, GOLD, 20, 175f);
+        audio.playUiTap();
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
         saveNow();
     }
@@ -1421,6 +1479,19 @@ public final class GameView extends View {
         }
     }
 
+    private void addImpactBurst(float x, float y, float direction, int count, float speed) {
+        for (int index = 0; index < count && particles.size() < MAX_PARTICLES; index++) {
+            float angle = (random.nextFloat() - 0.5f) * 1.55f;
+            float velocity = speed * (0.45f + random.nextFloat() * 0.7f);
+            int color = index % 4 == 0 ? Color.WHITE : index % 5 == 0 ? GOLD : CRIMSON;
+            addParticle(x, y,
+                    direction * (float) Math.cos(angle) * velocity,
+                    (float) Math.sin(angle) * velocity * 0.72f,
+                    color, 2.5f + random.nextFloat() * 4f,
+                    0.2f + random.nextFloat() * 0.24f, 85f);
+        }
+    }
+
     private void addParticle(float x, float y, float velocityX, float velocityY,
                              int color, float radius, float life, float gravity) {
         if (particles.size() >= MAX_PARTICLES) {
@@ -1440,10 +1511,10 @@ public final class GameView extends View {
     }
 
     private void drawScene(Canvas canvas) {
-        float shakeX = screenShake > 0f
-                ? (float) Math.sin(ambientClock * 84f) * screenShake : 0f;
-        float shakeY = screenShake > 0f
-                ? (float) Math.cos(ambientClock * 67f) * screenShake * 0.45f : 0f;
+        float shakeX = cameraKickX + (screenShake > 0f
+                ? (float) Math.sin(ambientClock * 84f) * screenShake : 0f);
+        float shakeY = cameraKickY + (screenShake > 0f
+                ? (float) Math.cos(ambientClock * 67f) * screenShake * 0.45f : 0f);
         canvas.save();
         canvas.translate(shakeX, shakeY);
         drawBackground(canvas);
@@ -1455,6 +1526,7 @@ public final class GameView extends View {
             drawTitleAtmosphere(canvas);
         }
         canvas.restore();
+        drawImpactFlash(canvas);
 
         if (screen == Screen.TITLE || screen == Screen.NEW_CONFIRM) {
             drawTitle(canvas);
@@ -1484,6 +1556,32 @@ public final class GameView extends View {
         }
     }
 
+    private void drawImpactFlash(Canvas canvas) {
+        if (impactFlash <= 0f || screen != Screen.PLAYING) {
+            return;
+        }
+        int alpha = Math.round(impactFlash * (impactHeavy ? 195f : 135f));
+        float radius = impactHeavy ? 112f : 72f;
+        paint.setShader(new RadialGradient(impactX, impactY, radius,
+                new int[]{withAlpha(Color.WHITE, alpha), withAlpha(GOLD, alpha / 2),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.2f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(impactX, impactY, radius, paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(impactHeavy ? 6f : 3f);
+        paint.setColor(withAlpha(Color.WHITE, Math.min(230, alpha)));
+        float spread = impactHeavy ? 94f : 58f;
+        for (int index = -2; index <= 2; index++) {
+            float angle = index * 0.25f;
+            float dx = impactDirection * (float) Math.cos(angle) * spread;
+            float dy = (float) Math.sin(angle) * spread * 0.65f;
+            canvas.drawLine(impactX + dx * 0.3f, impactY + dy * 0.3f,
+                    impactX + dx, impactY + dy, paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     private void drawBackground(Canvas canvas) {
         int region = progress == null ? 0 : RpgRules.clamp(progress.region, 0, 2);
         Bitmap background = obtainBackground(region);
@@ -1491,8 +1589,8 @@ public final class GameView extends View {
                 : -(worldTravel * 0.035f) % 24f;
         if (background != null && !background.isRecycled()) {
             canvas.drawBitmap(background, null,
-                    new RectF(-12f - parallax, -2f, LOGICAL_WIDTH + 12f - parallax,
-                            LOGICAL_HEIGHT + 2f), paint);
+                    new RectF(-44f - parallax, -32f, LOGICAL_WIDTH + 44f - parallax,
+                            LOGICAL_HEIGHT + 32f), paint);
         } else {
             int upper = region == 0 ? Color.rgb(10, 28, 55)
                     : region == 1 ? Color.rgb(39, 13, 31) : Color.rgb(31, 14, 24);
@@ -1563,7 +1661,7 @@ public final class GameView extends View {
                 Color.argb(30, 4, 6, 14), Color.argb(232, 3, 4, 10), Shader.TileMode.CLAMP));
         canvas.drawRect(0f, 190f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
-        drawFighterShadow(canvas, 200f, 0.9f, 66f);
+        drawFighterShadow(canvas, 200f, 0.9f, 48f);
         float oldX = hero.x;
         int oldFacing = hero.facing;
         hero.x = 200f;
@@ -1581,9 +1679,9 @@ public final class GameView extends View {
         }
         for (Enemy enemy : enemies) {
             drawFighterShadow(canvas, enemy.x, enemy.dead ? 0.3f : 0.85f,
-                    enemy.kind == RpgRules.ENEMY_BOSS ? 76f : 50f);
+                    enemy.kind == RpgRules.ENEMY_BOSS ? 62f : 40f);
         }
-        drawFighterShadow(canvas, hero.x, hero.dead ? 0.35f : 1f, 58f);
+        drawFighterShadow(canvas, hero.x, hero.dead ? 0.35f : 1f, 46f);
         for (Enemy enemy : enemies) {
             drawEnemy(canvas, enemy);
         }
@@ -1636,8 +1734,8 @@ public final class GameView extends View {
         // world-space baseline instead of floating the whole bitmap with a sine wave.
         float bob = !moving && heroAction == ACTION_NONE && !hero.dead
                 ? (float) Math.sin(ambientClock * 2.5f) * 0.8f : 0f;
-        float width = 244f;
-        float height = 244f;
+        float width = 198f;
+        float height = 198f;
         RectF destination = new RectF(hero.x - width * 0.5f,
                 GROUND_Y - height + 8f + bob, hero.x + width * 0.5f, GROUND_Y + 8f + bob);
         int alpha = hero.invulnerability > 0f
@@ -1694,16 +1792,21 @@ public final class GameView extends View {
             } else if (Math.abs(enemy.velocity) > 24f) {
                 column = ((int) (enemy.runDistance / 38f)) & 1;
             }
-            float width = 330f;
-            float height = 278f;
+            float width = 270f;
+            float height = 228f;
             RectF destination = new RectF(enemy.x - width * 0.5f,
-                    GROUND_Y - height + 22f, enemy.x + width * 0.5f, GROUND_Y + 22f);
+                    GROUND_Y - height + 13f, enemy.x + width * 0.5f, GROUND_Y + 13f);
+            canvas.save();
+            if (enemy.hurtTimer > 0f) {
+                canvas.rotate(-enemy.facing * 5.5f, enemy.x, GROUND_Y + 5f);
+            }
             if (bossAtlas == null || bossAtlas.isRecycled()) {
                 drawFallbackFighter(canvas, destination, GOLD, alpha, enemy.facing);
             } else {
                 drawAtlasCell(canvas, bossAtlas, 4, 3, column, row, destination,
                         enemy.facing > 0, alpha, 3);
             }
+            canvas.restore();
         } else {
             int row = enemy.kind;
             int column;
@@ -1714,10 +1817,14 @@ public final class GameView extends View {
             } else {
                 column = 0;
             }
-            float width = enemy.kind == RpgRules.ENEMY_WRAITH ? 224f : 210f;
-            float height = enemy.kind == RpgRules.ENEMY_WRAITH ? 204f : 196f;
+            float width = enemy.kind == RpgRules.ENEMY_WRAITH ? 186f : 176f;
+            float height = enemy.kind == RpgRules.ENEMY_WRAITH ? 170f : 164f;
             RectF destination = new RectF(enemy.x - width * 0.5f,
-                    GROUND_Y - height + 18f, enemy.x + width * 0.5f, GROUND_Y + 18f);
+                    GROUND_Y - height + 10f, enemy.x + width * 0.5f, GROUND_Y + 10f);
+            canvas.save();
+            if (enemy.hurtTimer > 0f) {
+                canvas.rotate(-enemy.facing * 8f, enemy.x, GROUND_Y + 4f);
+            }
             if (enemyAtlas == null || enemyAtlas.isRecycled()) {
                 drawFallbackFighter(canvas, destination,
                         enemy.kind == RpgRules.ENEMY_WRAITH ? CYAN : VIOLET,
@@ -1726,11 +1833,12 @@ public final class GameView extends View {
                 drawAtlasCell(canvas, enemyAtlas, 4, 3, column, row, destination,
                         enemy.facing > 0, alpha, 3);
             }
+            canvas.restore();
         }
         if (!enemy.dead && enemy.spawnTimer <= 0f
                 && (enemy.kind == RpgRules.ENEMY_BOSS || enemy.hurtTimer > 0f)) {
-            float width = enemy.kind == RpgRules.ENEMY_BOSS ? 260f : 112f;
-            float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 288f : GROUND_Y - 210f;
+            float width = enemy.kind == RpgRules.ENEMY_BOSS ? 216f : 96f;
+            float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 246f : GROUND_Y - 182f;
             drawMiniHealthBar(canvas, enemy.x - width * 0.5f, y, width,
                     enemy.health / Math.max(1f, enemy.maxHealth),
                     enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : CRIMSON);
@@ -2081,7 +2189,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.0.0 DEMO  ·  진행도 자동 저장", 360f, 1120f, textPaint);
+        canvas.drawText("v4.1.0 DEMO  ·  AI AUDIO", 360f, 1120f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -2581,11 +2689,23 @@ public final class GameView extends View {
     }
 
     public void pauseFromSystem() {
+        audio.pause();
         if (screen == Screen.PLAYING || screen == Screen.GROWTH) {
             saveNow();
             screen = Screen.PAUSED;
             resetPointers();
         }
+    }
+
+    public void resumeFromSystem() {
+        audio.resume();
+        lastFrameNanos = System.nanoTime();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        audio.release();
+        super.onDetachedFromWindow();
     }
 
     public boolean handleBack() {

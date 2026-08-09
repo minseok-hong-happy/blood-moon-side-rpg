@@ -38,6 +38,9 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
+        if (gameView != null) {
+            gameView.resumeFromSystem();
+        }
     }
 
     @Override
