@@ -94,7 +94,8 @@ public final class RpgRules {
     public static int waveEnemyCount(int region, int wave) {
         int safeRegion = clamp(region, 0, REGION_COUNT - 1);
         int safeWave = clamp(wave, 1, WAVES_PER_REGION);
-        return safeWave == WAVES_PER_REGION ? 1 : 4 + safeWave + safeRegion * 2;
+        return safeWave == WAVES_PER_REGION ? 3 + safeRegion
+                : 6 + safeWave * 2 + safeRegion * 2;
     }
 
     public static int enemyMaxHealth(int kind, int region, int wave, int heroLevel,

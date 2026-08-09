@@ -48,9 +48,10 @@ public final class RpgRulesTest {
     }
 
     @Test
-    public void bossWaveSpawnsOneBoss() {
-        assertEquals(1, RpgRules.waveEnemyCount(2, RpgRules.WAVES_PER_REGION));
-        assertTrue(RpgRules.waveEnemyCount(2, 4) > 1);
+    public void wavesProvideDenseEnemyGroupsAndBossEscorts() {
+        assertTrue(RpgRules.waveEnemyCount(0, 1) >= 8);
+        assertTrue(RpgRules.waveEnemyCount(2, 4) >= 18);
+        assertEquals(5, RpgRules.waveEnemyCount(2, RpgRules.WAVES_PER_REGION));
     }
 
     @Test

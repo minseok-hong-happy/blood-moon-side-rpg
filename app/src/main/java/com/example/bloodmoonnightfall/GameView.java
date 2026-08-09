@@ -5,7 +5,10 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.LinearGradient;
+import android.graphics.LightingColorFilter;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
@@ -30,7 +33,7 @@ public final class GameView extends View {
     private static final float GROUND_Y = 866f;
     private static final float CONTROL_TOP = 936f;
     private static final float FIXED_STEP = 1f / 60f;
-    private static final int MAX_ACTIVE_ENEMIES = 3;
+    private static final int MAX_ACTIVE_ENEMIES = 6;
     private static final int MAX_PARTICLES = 420;
 
     private static final int CRIMSON = Color.rgb(214, 31, 70);
@@ -39,6 +42,16 @@ public final class GameView extends View {
     private static final int CYAN = Color.rgb(102, 222, 237);
     private static final int VIOLET = Color.rgb(159, 112, 232);
     private static final int NIGHT = Color.rgb(7, 9, 18);
+
+    private static final ColorMatrixColorFilter BACKGROUND_LIFT_FILTER =
+            new ColorMatrixColorFilter(new ColorMatrix(new float[]{
+                    1.18f, 0f, 0f, 0f, 14f,
+                    0f, 1.18f, 0f, 0f, 14f,
+                    0f, 0f, 1.16f, 0f, 16f,
+                    0f, 0f, 0f, 1f, 0f
+            }));
+    private static final LightingColorFilter ACTOR_LIFT_FILTER =
+            new LightingColorFilter(Color.WHITE, Color.rgb(16, 16, 20));
 
     private static final int ACTION_NONE = 0;
     private static final int ACTION_ATTACK = 1;
@@ -931,13 +944,13 @@ public final class GameView extends View {
         spawnTimer -= dt;
         if (spawnTimer <= 0f && aliveEnemyCount() < MAX_ACTIVE_ENEMIES) {
             spawnEnemy();
-            spawnTimer = progress.wave == RpgRules.WAVES_PER_REGION ? 1f : 0.72f;
+            spawnTimer = progress.wave == RpgRules.WAVES_PER_REGION ? 0.48f : 0.30f;
         }
     }
 
     private void spawnEnemy() {
         int kind;
-        if (progress.wave == RpgRules.WAVES_PER_REGION) {
+        if (progress.wave == RpgRules.WAVES_PER_REGION && spawnSerial == 0) {
             kind = RpgRules.ENEMY_BOSS;
         } else {
             int roll = (spawnSerial + progress.wave + progress.region * 2) % 6;
@@ -955,14 +968,14 @@ public final class GameView extends View {
         enemy.id = nextEnemyId++;
         enemy.kind = kind;
         // This is a side-scrolling hunt: danger always enters from the road ahead.
-        enemy.x = 638f;
+        enemy.x = 638f - spawnSerial % 3 * 18f;
         enemy.previousX = enemy.x;
         enemy.facing = enemy.x > hero.x ? -1 : 1;
         enemy.maxHealth = RpgRules.enemyMaxHealth(kind, progress.region, progress.wave,
                 progress.level, progress.chapterClears);
         enemy.health = enemy.maxHealth;
         enemy.cooldown = 0.65f + random.nextFloat() * 0.7f;
-        enemy.spawnTimer = kind == RpgRules.ENEMY_BOSS ? 1.1f : 0.58f;
+        enemy.spawnTimer = kind == RpgRules.ENEMY_BOSS ? 0.88f : 0.42f;
         enemies.add(enemy);
         remainingToSpawn--;
         spawnSerial++;
@@ -1527,7 +1540,7 @@ public final class GameView extends View {
         defeatedThisWave = 0;
         spawnSerial = 0;
         nextEnemyId = 1;
-        spawnTimer = 0.55f;
+        spawnTimer = 0.18f;
         waveComplete = false;
         waveClearTimer = 0f;
         waveBannerTimer = 2.2f;
@@ -1965,9 +1978,11 @@ public final class GameView extends View {
         float parallax = screen == Screen.TITLE ? (float) Math.sin(ambientClock * 0.08f) * 8f
                 : -(worldTravel * 0.035f) % 24f;
         if (background != null && !background.isRecycled()) {
+            paint.setColorFilter(BACKGROUND_LIFT_FILTER);
             canvas.drawBitmap(background, null,
                     new RectF(-44f - parallax, -32f, LOGICAL_WIDTH + 44f - parallax,
                             LOGICAL_HEIGHT + 32f), paint);
+            paint.setColorFilter(null);
         } else {
             int upper = region == 0 ? Color.rgb(10, 28, 55)
                     : region == 1 ? Color.rgb(39, 13, 31) : Color.rgb(31, 14, 24);
@@ -1981,7 +1996,7 @@ public final class GameView extends View {
             canvas.drawCircle(525f, 205f, 82f, paint);
         }
         paint.setShader(new LinearGradient(0f, 0f, 0f, LOGICAL_HEIGHT,
-                Color.argb(18, 4, 5, 14), Color.argb(100, 3, 4, 10), Shader.TileMode.CLAMP));
+                Color.argb(4, 4, 5, 14), Color.argb(42, 3, 4, 10), Shader.TileMode.CLAMP));
         canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
         drawAmbientMotes(canvas, region);
@@ -1995,7 +2010,7 @@ public final class GameView extends View {
         float roadOffset = -(worldTravel * 0.72f) % 168f;
         int stoneColor = region == 0 ? Color.rgb(52, 70, 86)
                 : region == 1 ? Color.rgb(69, 50, 58) : Color.rgb(76, 53, 48);
-        paint.setColor(Color.argb(185, 7, 8, 13));
+        paint.setColor(Color.argb(142, 14, 16, 24));
         canvas.drawRect(0f, GROUND_Y + 18f, LOGICAL_WIDTH, 936f, paint);
         for (int index = -1; index < 6; index++) {
             float x = roadOffset + index * 168f;
@@ -2021,7 +2036,7 @@ public final class GameView extends View {
             float y = 270f + (index * 97f % 535f)
                     + (float) Math.sin(ambientClock * 0.7f + index) * 17f;
             float pulse = 0.45f + 0.35f * (float) Math.sin(ambientClock * 1.2f + index * 0.8f);
-            paint.setColor(withAlpha(color, Math.round(42f + pulse * 48f)));
+            paint.setColor(withAlpha(color, Math.round(66f + pulse * 62f)));
             canvas.drawCircle(x, y, 1.5f + (index % 3), paint);
         }
     }
@@ -2051,12 +2066,21 @@ public final class GameView extends View {
     }
 
     private void drawArena(Canvas canvas) {
+        drawCombatVisibilityWash(canvas);
         drawGroundGlow(canvas);
         drawCombatSpeedLines(canvas);
         drawSkillEffects(canvas, false);
         for (Enemy enemy : enemies) {
             drawEnemyTelegraph(canvas, enemy);
         }
+        for (Enemy enemy : enemies) {
+            if (!enemy.dead) {
+                drawActorReadabilityGlow(canvas, enemyRenderX(enemy),
+                        enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : CYAN,
+                        enemy.kind == RpgRules.ENEMY_BOSS ? 104f : 72f);
+            }
+        }
+        drawActorReadabilityGlow(canvas, heroRenderX(), CRIMSON, 82f);
         for (Enemy enemy : enemies) {
             drawFighterShadow(canvas, enemyRenderX(enemy), enemy.dead ? 0.3f : 0.85f,
                     enemy.kind == RpgRules.ENEMY_BOSS ? 50f : 32f);
@@ -2075,9 +2099,24 @@ public final class GameView extends View {
 
     private void drawGroundGlow(Canvas canvas) {
         paint.setShader(new RadialGradient(LOGICAL_WIDTH * 0.5f, GROUND_Y + 18f, 330f,
-                Color.argb(62, 196, 24, 62), Color.TRANSPARENT, Shader.TileMode.CLAMP));
+                Color.argb(92, 112, 144, 168), Color.TRANSPARENT, Shader.TileMode.CLAMP));
         canvas.drawOval(new RectF(18f, GROUND_Y - 55f, LOGICAL_WIDTH - 18f, GROUND_Y + 88f), paint);
         paint.setShader(null);
+    }
+
+    private void drawCombatVisibilityWash(Canvas canvas) {
+        paint.setShader(new LinearGradient(0f, 300f, 0f, GROUND_Y + 50f,
+                Color.argb(8, 88, 112, 142), Color.argb(34, 105, 123, 148),
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(0f, 270f, LOGICAL_WIDTH, GROUND_Y + 54f, paint);
+        paint.setShader(null);
+    }
+
+    private void drawActorReadabilityGlow(Canvas canvas, float x, int color, float radius) {
+        paint.setColor(withAlpha(color, 18));
+        canvas.drawCircle(x, GROUND_Y - 72f, radius, paint);
+        paint.setColor(withAlpha(Color.WHITE, 13));
+        canvas.drawCircle(x, GROUND_Y - 72f, radius * 0.58f, paint);
     }
 
     private void drawCombatSpeedLines(Canvas canvas) {
@@ -3060,7 +3099,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v4.5.0 DEMO  ·  BLOOD RUSH", 360f, 1120f, textPaint);
+        canvas.drawText("v4.6.0 DEMO  ·  NIGHT VISION", 360f, 1120f, textPaint);
     }
 
     private void drawStory(Canvas canvas) {
@@ -3531,7 +3570,7 @@ public final class GameView extends View {
 
     private void drawVignette(Canvas canvas) {
         paint.setShader(new RadialGradient(LOGICAL_WIDTH * 0.5f, LOGICAL_HEIGHT * 0.45f,
-                690f, Color.TRANSPARENT, Color.argb(175, 0, 0, 4), Shader.TileMode.CLAMP));
+                760f, Color.TRANSPARENT, Color.argb(88, 0, 0, 4), Shader.TileMode.CLAMP));
         canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
     }
@@ -3579,7 +3618,7 @@ public final class GameView extends View {
         int bottom = Math.round((safeRow + 1) * atlas.getHeight() / (float) rows) - inset;
         atlasSource.set(left, top, right, bottom);
         paint.setAlpha(Math.max(0, Math.min(255, alpha)));
-        paint.setColorFilter(null);
+        paint.setColorFilter(ACTOR_LIFT_FILTER);
         if (flip) {
             canvas.save();
             canvas.scale(-1f, 1f, destination.centerX(), destination.centerY());
@@ -3589,6 +3628,7 @@ public final class GameView extends View {
             canvas.drawBitmap(atlas, atlasSource, destination, paint);
         }
         paint.setAlpha(255);
+        paint.setColorFilter(null);
     }
 
     private void drawFallbackFighter(Canvas canvas, RectF bounds, int color,
