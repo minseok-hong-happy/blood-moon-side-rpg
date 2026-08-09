@@ -135,4 +135,17 @@ public final class RpgRulesTest {
                 >= GameUiLayout.MIN_CONTROL_ROW_GAP);
         assertTrue(GameUiLayout.portraitControlsAreSeparatedAndVisible());
     }
+
+    @Test
+    public void bloodArtAnimationAdvancesAndHoldsPeakFrame() {
+        float previous = -1f;
+        for (int sample = 0; sample <= 100; sample++) {
+            float position = VfxAnimationRules.framePosition(sample / 100f);
+            assertTrue(position >= previous);
+            previous = position;
+        }
+        assertEquals(2f, VfxAnimationRules.framePosition(0.50f), 0.001f);
+        assertEquals(3, VfxAnimationRules.firstFrame(1f));
+        assertEquals(3, VfxAnimationRules.secondFrame(1f));
+    }
 }
