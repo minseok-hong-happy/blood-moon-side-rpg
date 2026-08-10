@@ -1,4 +1,5 @@
 .gradle/
+app/src/main/assets/.godot/
 **/build/
 local.properties
 *.jks

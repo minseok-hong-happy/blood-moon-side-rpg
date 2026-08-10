@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$JdkHome = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\jdk-17",
-    [string]$KeystorePath = "$env:USERPROFILE\.android\bloodmoon-nightfall-update.keystore"
+    [string]$KeystorePath = "$env:USERPROFILE\.android\bloodmoon-nightfall-update.keystore",
+    [string]$GodotExe = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\godot-4.7.1\Godot_v4.7.1-stable_win64.exe"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,34 @@ if (-not $JdkHome -or -not (Test-Path -LiteralPath (Join-Path $JdkHome 'bin\java
 if (-not (Test-Path -LiteralPath $KeystorePath)) {
     throw "The update-compatible signing keystore was not found: $KeystorePath"
 }
+if (-not (Test-Path -LiteralPath $GodotExe)) {
+    throw "Godot 4.7.1 was not found. Supply -GodotExe with the official editor executable."
+}
+
+function Invoke-GodotAndWait {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$GodotArguments,
+        [Parameter(Mandatory = $true)]
+        [string]$FailureMessage
+    )
+
+    $escapedArguments = @($GodotArguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + $_.Replace('"', '\"') + '"'
+        } else {
+            $_
+        }
+    })
+    $process = Start-Process -FilePath $GodotExe `
+        -ArgumentList $escapedArguments `
+        -NoNewWindow `
+        -Wait `
+        -PassThru
+    if ($process.ExitCode -ne 0) {
+        throw "$FailureMessage`: exit $($process.ExitCode)"
+    }
+}
 
 if (Test-Path -LiteralPath $stageRoot) {
     $resolvedStage = (Resolve-Path -LiteralPath $stageRoot).Path
@@ -40,7 +69,7 @@ if (Test-Path -LiteralPath $stageRoot) {
 }
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
-& robocopy $projectRoot $stageRoot /E /XD .git .gradle build dist tmp /NFL /NDL /NJH /NJS /NP
+& robocopy $projectRoot $stageRoot /E /XD .git .gradle build dist tmp .godot /NFL /NDL /NJH /NJS /NP
 if ($LASTEXITCODE -gt 7) {
     throw "Failed to copy the release staging tree: robocopy exit $LASTEXITCODE"
 }
@@ -64,6 +93,60 @@ $env:ANDROID_KEYSTORE_PASSWORD = 'android'
 $env:ANDROID_KEY_ALIAS = 'androiddebugkey'
 $env:ANDROID_KEY_PASSWORD = 'android'
 
+$godotProject = Join-Path $stageRoot 'app\src\main\assets'
+Invoke-GodotAndWait @('--headless', '--editor', '--path', $godotProject, '--quit') `
+    'Godot asset import failed'
+
+$importedCache = Join-Path $godotProject '.godot\imported'
+$importedResources = @(Get-ChildItem -LiteralPath $importedCache -File -ErrorAction SilentlyContinue)
+$importRemaps = @(Get-ChildItem -LiteralPath (Join-Path $godotProject 'art') `
+    -File -Filter '*.import' -ErrorAction SilentlyContinue)
+if ($importedResources.Count -lt 20 -or $importRemaps.Count -lt 10) {
+    throw "Godot import did not produce the required runtime cache/remaps. Cache: $($importedResources.Count), remaps: $($importRemaps.Count)"
+}
+
+Invoke-GodotAndWait @('--headless', '--path', $godotProject,
+    '--script', 'res://tests/run_tests.gd') 'Godot gameplay tests failed'
+Invoke-GodotAndWait @('--headless', '--path', $godotProject, '--fixed-fps', '60',
+    '--script', 'res://tests/integration_test.gd') 'Godot integration simulation failed'
+
+# Godot resolves source media through the generated .import remap files. Shipping both the
+# original PNG/WAV/TTF and the imported mobile resource would duplicate tens of megabytes.
+$sourceMedia = @(
+    Get-ChildItem -LiteralPath (Join-Path $godotProject 'art') -File -Filter '*.png'
+    Get-ChildItem -LiteralPath (Join-Path $godotProject 'audio') -File -Filter '*.wav'
+    Get-ChildItem -LiteralPath (Join-Path $godotProject 'fonts') -File -Filter '*.ttf'
+)
+$resolvedGodotProject = (Resolve-Path -LiteralPath $godotProject).Path
+foreach ($mediaFile in $sourceMedia) {
+    if (-not $mediaFile.FullName.StartsWith(
+            $resolvedGodotProject + [IO.Path]::DirectorySeparatorChar,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove staged media outside the Godot project: $($mediaFile.FullName)"
+    }
+    Remove-Item -LiteralPath $mediaFile.FullName -Force
+}
+$editorCache = Join-Path $godotProject '.godot\editor'
+if (Test-Path -LiteralPath $editorCache) {
+    $resolvedEditorCache = (Resolve-Path -LiteralPath $editorCache).Path
+    if (-not $resolvedEditorCache.StartsWith(
+            $resolvedGodotProject + [IO.Path]::DirectorySeparatorChar,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove an editor cache outside the Godot project: $resolvedEditorCache"
+    }
+    Remove-Item -LiteralPath $resolvedEditorCache -Recurse -Force
+}
+$testAssets = Join-Path $godotProject 'tests'
+if (Test-Path -LiteralPath $testAssets) {
+    $resolvedTestAssets = (Resolve-Path -LiteralPath $testAssets).Path
+    if (-not $resolvedTestAssets.StartsWith(
+            $resolvedGodotProject + [IO.Path]::DirectorySeparatorChar,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove staged tests outside the Godot project: $resolvedTestAssets"
+    }
+    Remove-Item -LiteralPath $resolvedTestAssets -Recurse -Force
+}
+
 Push-Location $stageRoot
 try {
     & .\gradlew.bat clean testDebugUnitTest lintRelease assembleRelease --no-build-cache
@@ -77,6 +160,25 @@ try {
 $builtApk = Join-Path $stageRoot 'app\build\outputs\apk\release\app-release.apk'
 if (-not (Test-Path -LiteralPath $builtApk)) {
     throw 'Gradle completed but the release APK was not produced.'
+}
+
+$jarTool = Join-Path $env:JAVA_HOME 'bin\jar.exe'
+$apkEntries = @(& $jarTool tf $builtApk)
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not inspect the generated APK contents.'
+}
+$hasProject = @($apkEntries | Where-Object { $_ -eq 'assets/project.godot' }).Count -eq 1
+$hasMainScript = @($apkEntries | Where-Object { $_ -eq 'assets/scripts/main.gd' }).Count -eq 1
+$cacheEntryCount = @($apkEntries | Where-Object {
+    $_ -match '^assets/\.godot/imported/.+\.(ctex|sample|fontdata)$'
+}).Count
+$remapEntryCount = @($apkEntries | Where-Object { $_ -match '^assets/.+\.import$' }).Count
+$rawMediaCount = @($apkEntries | Where-Object {
+    $_ -match '^assets/(art/.+\.png|audio/.+\.wav|fonts/.+\.ttf)$'
+}).Count
+if (-not $hasProject -or -not $hasMainScript -or $cacheEntryCount -lt 20 `
+        -or $remapEntryCount -lt 20 -or $rawMediaCount -ne 0) {
+    throw "APK asset gate failed. project=$hasProject, main=$hasMainScript, cache=$cacheEntryCount, remaps=$remapEntryCount, raw=$rawMediaCount"
 }
 
 $localProperties = Join-Path $stageRoot 'local.properties'

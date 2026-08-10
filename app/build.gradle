@@ -13,10 +13,14 @@ android {
 
     defaultConfig {
         applicationId "com.example.bloodmoonnightfall"
-        minSdk 23
+        minSdk 24
         targetSdk 35
-        versionCode 41700
-        versionName "4.17.0-demo"
+        versionCode 50000
+        versionName "5.0.0-engine-preview"
+
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
     }
 
     signingConfigs {
@@ -51,8 +55,18 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // Godot keeps its imported project cache in a hidden .godot asset directory.
+    // Overriding aapt's legacy ignore list makes that directory part of the APK.
+    aaptOptions {
+        ignoreAssetsPattern "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+
 }
 
 dependencies {
+    implementation "org.godotengine:godot:4.7.1.stable"
+    implementation "androidx.fragment:fragment:1.8.6"
     testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20250517"
 }
