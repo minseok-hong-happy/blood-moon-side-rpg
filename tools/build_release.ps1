@@ -65,7 +65,30 @@ if (Test-Path -LiteralPath $stageRoot) {
             [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to remove a staging path outside the safe build directory: $resolvedStage"
     }
-    Remove-Item -LiteralPath $stageRoot -Recurse -Force
+    $stagedGradleWrapper = Join-Path $stageRoot 'gradlew.bat'
+    if (Test-Path -LiteralPath $stagedGradleWrapper) {
+        $previousJavaHome = $env:JAVA_HOME
+        $previousErrorAction = $ErrorActionPreference
+        try {
+            $env:JAVA_HOME = (Resolve-Path -LiteralPath $JdkHome).Path
+            $ErrorActionPreference = 'Continue'
+            & $stagedGradleWrapper --stop 2>&1 | Out-Null
+        } finally {
+            $ErrorActionPreference = $previousErrorAction
+            $env:JAVA_HOME = $previousJavaHome
+        }
+    }
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $stageRoot -Recurse -Force
+            break
+        } catch {
+            if ($attempt -eq 4) {
+                throw
+            }
+            Start-Sleep -Seconds $attempt
+        }
+    }
 }
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
@@ -109,6 +132,21 @@ Invoke-GodotAndWait @('--headless', '--path', $godotProject,
     '--script', 'res://tests/run_tests.gd') 'Godot gameplay tests failed'
 Invoke-GodotAndWait @('--headless', '--path', $godotProject, '--fixed-fps', '60',
     '--script', 'res://tests/integration_test.gd') 'Godot integration simulation failed'
+
+# The embedded Android runtime loads release settings from project.binary. Copying only the
+# editor-facing project.godot makes the JVM start successfully and then aborts before the scene.
+Invoke-GodotAndWait @('--headless', '--path', $godotProject,
+    '--script', 'res://tests/export_project_binary.gd') 'Godot runtime settings export failed'
+$binaryProject = Join-Path $godotProject 'project.binary'
+if (-not (Test-Path -LiteralPath $binaryProject)) {
+    throw 'Godot did not produce the required Android runtime project.binary file.'
+}
+$binaryHeader = [IO.File]::ReadAllBytes($binaryProject)
+if ($binaryHeader.Length -lt 4 -or $binaryHeader[0] -ne 0x45 -or
+        $binaryHeader[1] -ne 0x43 -or $binaryHeader[2] -ne 0x46 -or
+        $binaryHeader[3] -ne 0x47) {
+    throw 'Generated project.binary does not contain the expected ECFG header.'
+}
 
 # Godot resolves source media through the generated .import remap files. Shipping both the
 # original PNG/WAV/TTF and the imported mobile resource would duplicate tens of megabytes.
@@ -162,12 +200,32 @@ if (-not (Test-Path -LiteralPath $builtApk)) {
     throw 'Gradle completed but the release APK was not produced.'
 }
 
+# Production is ARM-only. Build the same release configuration and Godot project once more for
+# x86_64 so the complete Android startup/rendering path can run on the deterministic QA AVD.
+Push-Location $stageRoot
+try {
+    & .\gradlew.bat assembleRuntimeSmoke -PruntimeSmoke=true --no-build-cache
+    if ($LASTEXITCODE -ne 0) {
+        throw "Gradle runtime-smoke APK build failed: exit $LASTEXITCODE"
+    }
+} finally {
+    Pop-Location
+}
+$runtimeSmokeApk = Join-Path $stageRoot `
+    'app\build\outputs\apk\runtimeSmoke\app-runtimeSmoke.apk'
+if (-not (Test-Path -LiteralPath $runtimeSmokeApk)) {
+    throw 'Gradle completed but the x86_64 runtime-smoke APK was not produced.'
+}
+
 $jarTool = Join-Path $env:JAVA_HOME 'bin\jar.exe'
 $apkEntries = @(& $jarTool tf $builtApk)
 if ($LASTEXITCODE -ne 0) {
     throw 'Could not inspect the generated APK contents.'
 }
 $hasProject = @($apkEntries | Where-Object { $_ -eq 'assets/project.godot' }).Count -eq 1
+$hasBinaryProject = @($apkEntries | Where-Object {
+    $_ -eq 'assets/project.binary'
+}).Count -eq 1
 $hasMainScript = @($apkEntries | Where-Object { $_ -eq 'assets/scripts/main.gd' }).Count -eq 1
 $cacheEntryCount = @($apkEntries | Where-Object {
     $_ -match '^assets/\.godot/imported/.+\.(ctex|sample|fontdata)$'
@@ -176,9 +234,54 @@ $remapEntryCount = @($apkEntries | Where-Object { $_ -match '^assets/.+\.import$
 $rawMediaCount = @($apkEntries | Where-Object {
     $_ -match '^assets/(art/.+\.png|audio/.+\.wav|fonts/.+\.ttf)$'
 }).Count
-if (-not $hasProject -or -not $hasMainScript -or $cacheEntryCount -lt 20 `
+if (-not $hasProject -or -not $hasBinaryProject -or -not $hasMainScript `
+        -or $cacheEntryCount -lt 20 `
         -or $remapEntryCount -lt 20 -or $rawMediaCount -ne 0) {
-    throw "APK asset gate failed. project=$hasProject, main=$hasMainScript, cache=$cacheEntryCount, remaps=$remapEntryCount, raw=$rawMediaCount"
+    throw "APK asset gate failed. project=$hasProject, binary=$hasBinaryProject, main=$hasMainScript, cache=$cacheEntryCount, remaps=$remapEntryCount, raw=$rawMediaCount"
+}
+
+$runtimeEntries = @(& $jarTool tf $runtimeSmokeApk)
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not inspect the runtime-smoke APK contents.'
+}
+if (@($runtimeEntries | Where-Object {
+            $_ -eq 'lib/x86_64/libgodot_android.so'
+        }).Count -ne 1 -or @($runtimeEntries | Where-Object {
+            $_ -match '^lib/(arm64-v8a|armeabi-v7a)/libgodot_android\.so$'
+        }).Count -ne 0) {
+    throw 'Runtime-smoke APK must contain only the x86_64 Godot engine.'
+}
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+function Get-ApkAssetManifest {
+    param([Parameter(Mandatory = $true)][string]$ApkPath)
+    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
+    try {
+        $manifest = @()
+        foreach ($entry in $archive.Entries | Where-Object {
+                $_.FullName.StartsWith('assets/', [StringComparison]::Ordinal) -and
+                $_.Name.Length -gt 0
+            } | Sort-Object FullName) {
+            $stream = $entry.Open()
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try {
+                $digest = [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '')
+            } finally {
+                $sha256.Dispose()
+                $stream.Dispose()
+            }
+            $manifest += "$($entry.FullName)|$($entry.Length)|$digest"
+        }
+        return $manifest
+    } finally {
+        $archive.Dispose()
+    }
+}
+$releaseAssetManifest = @(Get-ApkAssetManifest -ApkPath $builtApk)
+$runtimeAssetManifest = @(Get-ApkAssetManifest -ApkPath $runtimeSmokeApk)
+$assetDifferences = @(Compare-Object $releaseAssetManifest $runtimeAssetManifest)
+if ($releaseAssetManifest.Count -lt 40 -or $assetDifferences.Count -ne 0) {
+    throw "Release/runtime-smoke Godot assets differ. Release entries: $($releaseAssetManifest.Count), differences: $($assetDifferences.Count)"
 }
 
 $localProperties = Join-Path $stageRoot 'local.properties'
@@ -215,6 +318,18 @@ if (-not $digestMatch.Success) {
 $actualSignerSha256 = $digestMatch.Groups[1].Value.Replace(':', '').ToUpperInvariant()
 if ($actualSignerSha256 -ne $expectedSignerSha256) {
     throw "Unexpected APK signer. Expected $expectedSignerSha256 but found $actualSignerSha256"
+}
+
+# Static builds missed the v5.0.0 JNI crash. The ARM release and x86_64 QA APK have byte-identical
+# Godot assets; a release is invalid until the QA variant reaches and survives the game scene.
+$runtimeSmokeScript = Join-Path $projectRoot 'tools\android_runtime_smoke.ps1'
+if (-not (Test-Path -LiteralPath $runtimeSmokeScript)) {
+    throw "Mandatory Android runtime gate is missing: $runtimeSmokeScript"
+}
+& $runtimeSmokeScript -ApkPath $runtimeSmokeApk `
+    -ArtifactDirectory (Join-Path $stageRoot 'runtime-smoke')
+if ($LASTEXITCODE -ne 0) {
+    throw "Android runtime smoke gate failed: exit $LASTEXITCODE"
 }
 
 $dist = Join-Path $projectRoot 'dist'

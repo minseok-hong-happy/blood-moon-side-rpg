@@ -19,8 +19,8 @@ android {
         applicationId "com.example.bloodmoonnightfall"
         minSdk 24
         targetSdk 35
-        versionCode 50000
-        versionName "5.0.0-engine-preview"
+        versionCode 50001
+        versionName "5.0.1-engine-hotfix"
 
         ndk {
             // Production stays ARM-only. CI builds one x86_64 APK so the exact Android startup
@@ -51,13 +51,16 @@ android {
             if (releaseStorePath && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled true
-            shrinkResources true
+            // Godot's native bridge resolves JVM methods by their exact JNI names. Godot's
+            // official Android template does not enable R8, and shrinking 5.0.0 removed
+            // GodotNativeBridge.getRenderView(), causing a deterministic SIGABRT at startup.
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
         runtimeSmoke {
-            // Release-equivalent R8/resource shrinking with the standard debug certificate.
-            // It is installable in CI while exercising the same fragile JNI/reflection path.
+            // Release-equivalent Java, resources, Godot project and engine, but x86_64 so the
+            // complete startup path can run in an Android emulator. Production stays ARM-only.
             initWith release
             signingConfig signingConfigs.debug
             matchingFallbacks = ["release"]

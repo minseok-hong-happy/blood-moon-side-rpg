@@ -140,11 +140,14 @@ func _ready() -> void:
 	_apply_offline_reward()
 	_start_audio()
 	_start_wave()
+	# Emit a Godot-side marker before optional presentation work. The Java bridge marker remains
+	# defense in depth, but release QA must not depend on plugin reflection to prove scene startup.
+	print("VAYLORN_GAME_READY")
+	if save_layer.bridge:
+		save_layer.bridge.markGameReady()
 	_show_story(Stories.opening(int(progress.region), int(progress.wave),
 		int(progress.chapter_clears)))
 	_update_ui()
-	if save_layer.bridge and save_layer.bridge.has_method("markGameReady"):
-		save_layer.bridge.markGameReady()
 
 
 func _process(delta: float) -> void:

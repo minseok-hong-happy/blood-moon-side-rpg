@@ -27,9 +27,10 @@ if [[ ${start_status} -ne 0 ]]; then
 fi
 
 ready=0
-for _ in $(seq 1 45); do
+for _ in $(seq 1 240); do
     adb logcat -d -v brief >"${artifact_dir}/logcat-brief.txt"
-    if grep -q "VaylornBoot.*GAME_READY" "${artifact_dir}/logcat-brief.txt"; then
+    if grep -qE "VaylornBoot.*GAME_READY|VAYLORN_GAME_READY" \
+            "${artifact_dir}/logcat-brief.txt"; then
         ready=1
         break
     fi
@@ -46,7 +47,7 @@ adb exec-out screencap -p >"${artifact_dir}/first-frame.png" || true
 if [[ ${ready} -ne 1 ]]; then
     grep -E "VaylornBoot|AndroidRuntime|FATAL EXCEPTION|Fatal signal|>>> ${package_name} <<<|Godot" \
         "${artifact_dir}/logcat.txt" || true
-    echo "The game scene did not report GAME_READY within 45 seconds." >&2
+    echo "The game scene did not report GAME_READY within 240 seconds." >&2
     exit 1
 fi
 

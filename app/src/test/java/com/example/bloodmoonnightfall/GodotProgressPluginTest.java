@@ -2,11 +2,19 @@ package com.example.bloodmoonnightfall;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
+import org.godotengine.godot.plugin.UsedByGodot;
 import org.json.JSONObject;
 import org.junit.Test;
 
 public final class GodotProgressPluginTest {
+    @Test
+    public void runtimeReadyMarkerRemainsExportedToGodot() throws Exception {
+        assertNotNull(GodotProgressPlugin.class.getDeclaredMethod("markGameReady")
+                .getAnnotation(UsedByGodot.class));
+    }
+
     @Test
     public void jsonBridgeKeepsEveryPermanentProgressField() throws Exception {
         RpgProgress original = RpgProgress.fresh();

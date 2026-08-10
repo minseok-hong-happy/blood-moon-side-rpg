@@ -60,6 +60,11 @@
 - Android `INTERNET` 권한을 요청하지 않으며 광고, 분석 SDK, 계정 로그인 기능이 없습니다.
 - 기존 설치본과 같은 패키지 ID 및 서명 인증서를 사용해 덮어쓰기 업데이트가 가능합니다.
 
+## APK 다운로드
+
+- [VAYLORN 5.0.1 Engine Hotfix](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.0.1-engine-hotfix/VAYLORN-v5.0.1-engine-hotfix.apk)
+- SHA-256: `CDE6A28887BA59BBB63215A6FC4FC3367EAB9008D04375CA1D88FC0BC73F3D87`
+
 ## 빌드
 
 Windows PowerShell에서 다음 명령을 실행합니다.
@@ -68,7 +73,7 @@ Windows PowerShell에서 다음 명령을 실행합니다.
 .\tools\build_release.ps1
 ```
 
-스크립트는 영문 임시 경로에서 Godot 리소스 임포트, 게임 규칙 테스트, 900프레임 자동전투 시뮬레이션, JVM 단위 테스트, 린트, R8 릴리스 빌드, APK 내부 리소스 검사, APK 서명 및 인증서 검증을 수행합니다. 성공한 APK만 `dist` 폴더와 바탕 화면에 복사합니다. Godot 4.7.1, Java 17, 프로젝트에 설정된 Android SDK가 필요합니다.
+스크립트는 영문 스테이징 경로에서 Godot 리소스 임포트, 게임 규칙 테스트, 900프레임 자동전투 시뮬레이션, `project.binary` 생성, JVM 단위 테스트, 린트, APK 내부 리소스 검사, 서명·인증서 검증을 수행합니다. 이어서 ARM 배포본과 Godot 에셋이 바이트 단위로 같은 x86_64 QA APK를 API 24/OpenGL ES 3 에뮬레이터에 설치하고, 실제 게임 장면 준비와 초기 전투 생존까지 확인합니다. 모든 게이트를 통과한 ARM APK만 `dist`에 생성됩니다. Godot 4.7.1, Java 17, 프로젝트에 설정된 Android SDK가 필요합니다.
 
 오디오 원본은 외부 샘플 없이 `tools/generate_audio_assets.py`가 결정론적으로 생성합니다.
 
