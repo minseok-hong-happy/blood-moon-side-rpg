@@ -108,10 +108,21 @@ public final class RpgRulesTest {
     @Test
     public void bossesKeepACommandingSilhouetteAndClearAttachedUi() {
         float groundY = 866f;
-        float spriteTop = groundY - BossPresentationMetrics.spriteHeight() + 13f;
-        assertTrue(BossPresentationMetrics.spriteWidth() >= 280f);
-        assertTrue(BossPresentationMetrics.spriteHeight() >= 240f);
-        assertTrue(BossPresentationMetrics.healthBarY(groundY) <= spriteTop - 24f);
+        for (int variant = 0; variant < 3; variant++) {
+            float width = BossPresentationMetrics.spriteWidth(variant);
+            float height = BossPresentationMetrics.spriteHeight(variant);
+            float spriteTop = groundY - height + 13f;
+            assertTrue(width >= 318f);
+            assertTrue(height >= 286f);
+            assertTrue(BossPresentationMetrics.healthBarWidth(variant) < width);
+            assertTrue(BossPresentationMetrics.healthBarY(groundY, variant)
+                    <= spriteTop - 40f);
+            assertTrue(BossPresentationMetrics.readabilityGlowRadius(variant) >= 142f);
+        }
+        assertTrue(BossPresentationMetrics.spriteWidth(1)
+                > BossPresentationMetrics.spriteWidth(0));
+        assertTrue(BossPresentationMetrics.spriteHeight(2)
+                > BossPresentationMetrics.spriteHeight(0));
         assertTrue(BossPresentationMetrics.enemySpacing(RpgRules.ENEMY_BOSS,
                 RpgRules.ENEMY_THRALL)
                 > BossPresentationMetrics.enemySpacing(RpgRules.ENEMY_THRALL,

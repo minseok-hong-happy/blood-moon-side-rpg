@@ -10,8 +10,15 @@
 - `raw/world-objects-chroma.png` → `processed/world-objects-alpha.png`: 4×3 예배당·성소·나무·폐허·제단·성문·기둥·상자·울타리·석상·플랫폼·바리케이드
 - `generated/hero-side-atlas-v4-chroma.png`: v4에서 사용한 카엘 아르덴의 4×4 자동 달리기·대시·3연격·혈술 원본
 - `generated/hero-side-atlas-v5-chroma.png` → `app/src/main/res/drawable-nodpi/hero_side_atlas_v5.png`: 동일한 발 기준선과 연속 자세를 강화한 4×4 모션 재구축 포즈
+- `app/src/main/res/drawable-nodpi/boss_sun_inquisitor_atlas_v3.png`: 거대한 성당 갑주와 대검·다중 태양륜을 지닌 태양의 심판관 12자세
+- `app/src/main/res/drawable-nodpi/boss_ash_warden_atlas_v3.png`: 요새형 체격과 영혼 화로·사슬 대낫을 지닌 잿빛 수문장 12자세
+- `app/src/main/res/drawable-nodpi/boss_eclipse_sovereign_atlas_v3.png`: 검은 일식륜과 부유 혈검·왕실 망토를 지닌 월식의 여왕 12자세
 
 스프라이트는 순수 녹색(`#00FF00`) 배경으로 생성한 뒤, 이미지 생성 스킬의 크로마키 도구로 소프트 매트·디스필을 적용했습니다.
+
+### v4.17 보스 승격 프롬프트
+
+세 보스는 작은 모바일 화면에서도 서로 다른 체형이 먼저 읽히도록 `중장 집행자 / 요새형 사신 / 월식 군주`로 역할을 분리했습니다. 모든 시트는 4×3 배열 안에서 기본·이동·근접기·원거리기·2페이즈·사망 자세를 공유하며, 세부 장식보다 큰 갑주·무기·후광 덩어리를 우선했습니다. 전체 최종 프롬프트와 후처리 수치는 [`IMAGEGEN_PROMPTS-v4.md`](IMAGEGEN_PROMPTS-v4.md)에 기록했습니다.
 
 ## 배경과 아이콘
 

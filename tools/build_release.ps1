@@ -10,7 +10,14 @@ Set-StrictMode -Version Latest
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $safeBase = Join-Path $env:LOCALAPPDATA 'BloodMoonNightfall'
 $stageRoot = Join-Path $safeBase 'release-stage'
-$versionName = '4.16.0-demo'
+$appBuildGradle = Join-Path $projectRoot 'app\build.gradle'
+$versionMatch = [Regex]::Match(
+    [IO.File]::ReadAllText($appBuildGradle),
+    '(?m)^\s*versionName\s+"([^"]+)"\s*$')
+if (-not $versionMatch.Success) {
+    throw "Could not read versionName from $appBuildGradle"
+}
+$versionName = $versionMatch.Groups[1].Value
 $apkFileName = "VAYLORN-v$versionName.apk"
 $expectedSignerSha256 = '41B6CCB282C142826227EB6D0B6108E5A8F78FC2CFF08E845B9458B2F08FA99D'
 
