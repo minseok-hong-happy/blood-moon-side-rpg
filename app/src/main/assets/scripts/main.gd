@@ -143,6 +143,8 @@ func _ready() -> void:
 	_show_story(Stories.opening(int(progress.region), int(progress.wave),
 		int(progress.chapter_clears)))
 	_update_ui()
+	if save_layer.bridge and save_layer.bridge.has_method("markGameReady"):
+		save_layer.bridge.markGameReady()
 
 
 func _process(delta: float) -> void:

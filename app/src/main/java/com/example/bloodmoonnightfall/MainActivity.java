@@ -1,6 +1,7 @@
 package com.example.bloodmoonnightfall;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 
@@ -14,11 +15,26 @@ import java.util.Set;
 /** Android host for the Godot-powered VAYLORN concept demo. */
 @SuppressWarnings("deprecation") // Immersive flags keep Android 7-10 behavior consistent.
 public final class MainActivity extends GodotActivity {
+    private static final String BOOT_TAG = "VaylornBoot";
+
     @Override
     protected void onCreate(Bundle state) {
+        Log.i(BOOT_TAG, "ACTIVITY_CREATE_BEGIN");
         super.onCreate(state);
+        Log.i(BOOT_TAG, "ACTIVITY_CREATE_COMPLETE");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         hideSystemUi();
+    }
+
+    @Override
+    public void onGodotSetupCompleted() {
+        super.onGodotSetupCompleted();
+        Log.i(BOOT_TAG, "ENGINE_SETUP_COMPLETE");
+    }
+
+    @Override
+    public void onGodotMainLoopStarted() {
+        Log.i(BOOT_TAG, "MAIN_LOOP_STARTED");
     }
 
     @Override

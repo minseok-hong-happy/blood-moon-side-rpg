@@ -1,5 +1,7 @@
 package com.example.bloodmoonnightfall;
 
+import android.util.Log;
+
 import org.godotengine.godot.Godot;
 import org.godotengine.godot.plugin.GodotPlugin;
 import org.godotengine.godot.plugin.UsedByGodot;
@@ -12,6 +14,7 @@ import org.json.JSONObject;
  * to Godot. The singleton name is exposed to GDScript as {@code VaylornProgress}.
  */
 public final class GodotProgressPlugin extends GodotPlugin {
+    private static final String BOOT_TAG = "VaylornBoot";
     private final RpgProgressStore store;
 
     public GodotProgressPlugin(Godot godot) {
@@ -61,6 +64,12 @@ public final class GodotProgressPlugin extends GodotPlugin {
     @UsedByGodot
     public long nowEpochSeconds() {
         return System.currentTimeMillis() / 1_000L;
+    }
+
+    /** Runtime smoke tests wait for this marker, which proves the actual game scene reached ready. */
+    @UsedByGodot
+    public void markGameReady() {
+        Log.i(BOOT_TAG, "GAME_READY");
     }
 
     @UsedByGodot

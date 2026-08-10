@@ -6,6 +6,10 @@ def releaseStorePath = System.getenv("ANDROID_KEYSTORE_FILE")
 def releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
 def releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
 def releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+def isRuntimeSmokeBuild = providers.gradleProperty("runtimeSmoke")
+        .map { it.toBoolean() }
+        .orElse(false)
+        .get()
 
 android {
     namespace "com.example.bloodmoonnightfall"
@@ -19,7 +23,13 @@ android {
         versionName "5.0.0-engine-preview"
 
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a"
+            // Production stays ARM-only. CI builds one x86_64 APK so the exact Android startup
+            // path can be exercised in a hardware-accelerated emulator before any release.
+            if (isRuntimeSmokeBuild) {
+                abiFilters "x86_64"
+            } else {
+                abiFilters "arm64-v8a", "armeabi-v7a"
+            }
         }
     }
 
@@ -44,6 +54,13 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+        runtimeSmoke {
+            // Release-equivalent R8/resource shrinking with the standard debug certificate.
+            // It is installable in CI while exercising the same fragile JNI/reflection path.
+            initWith release
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ["release"]
         }
     }
 
