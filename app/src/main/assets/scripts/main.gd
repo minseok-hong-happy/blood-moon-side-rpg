@@ -49,6 +49,7 @@ const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연
 const SKILL_UNLOCK_LEVELS := [1, 1, 2, 3, 4, 5, 7, 9]
 const SKILL_COOLDOWNS := [2.0, 4.4, 5.8, 3.2, 6.4, 4.8, 7.2, 11.5]
 const SKILL_BLOOD_COSTS := [12, 16, 22, 14, 24, 19, 27, 38]
+const AUTO_SKILL_CAST_GAP := 0.16
 const STAT_KEYS := ["vitality_level", "might_level", "blood_level", "recovery_level"]
 const STAT_NAMES := ["생명", "공격", "혈기", "재생"]
 const ITEM_SLOT_NAMES := ["무기", "갑옷", "유물"]
@@ -98,6 +99,9 @@ var save_timer := 0.0
 var trail_timer := 0.0
 var hunt_chain := 0
 var skill_timers: Array[float] = []
+var auto_skill_cast_timer := 0.0
+var auto_skill_cursor := 0
+var automatic_skill_casts := 0
 
 var level_label: Label
 var location_label: Label
@@ -176,6 +180,10 @@ func _process(delta: float) -> void:
 		_save_progress()
 	if game_paused:
 		return
+	# Cooldowns are combat clocks, not range checks. Keep them moving while the hero runs
+	# toward a wave, waits for reinforcements, recovers from hit-stop, or revives.
+	_tick_skill_cooldowns(delta)
+	_tick_ui(delta)
 	if hero_down_timer > 0.0:
 		hero_down_timer -= delta
 		if hero_down_timer <= 0.0:
@@ -189,7 +197,16 @@ func _process(delta: float) -> void:
 	_update_wave_flow(delta)
 	_update_enemies(delta)
 	_update_hero(delta)
-	_update_auto_skills(delta)
+	_update_auto_skills()
+
+
+func _tick_skill_cooldowns(delta: float) -> void:
+	for index in range(skill_timers.size()):
+		skill_timers[index] = maxf(0.0, skill_timers[index] - delta)
+	auto_skill_cast_timer = maxf(0.0, auto_skill_cast_timer - delta)
+
+
+func _tick_ui(delta: float) -> void:
 	ui_timer += delta
 	if ui_timer >= 0.05:
 		ui_timer = 0.0
@@ -1038,18 +1055,22 @@ func _revive_hero() -> void:
 	_fill_reinforcements(true)
 
 
-func _update_auto_skills(delta: float) -> void:
-	if enemies.is_empty() or hero.dead:
+func _update_auto_skills() -> void:
+	if enemies.is_empty() or hero.dead or auto_skill_cast_timer > 0.0:
 		return
 	var nearest := _nearest_enemy()
 	if nearest == null or nearest.position.x > SKILL_ENGAGE_X:
 		return
-	for index in range(skill_timers.size()):
-		skill_timers[index] = maxf(0.0, skill_timers[index] - delta)
+	# Start from the skill after the previous cast. This prevents the short-cooldown
+	# first slot from starving the rest when several arts become ready between waves.
+	for offset in range(skill_timers.size()):
+		var index := (auto_skill_cursor + offset) % skill_timers.size()
 		if skill_timers[index] <= 0.0 and _skill_unlocked(index) \
 				and hero_blood >= SKILL_BLOOD_COSTS[index]:
 			_cast_skill(index)
-			break
+			automatic_skill_casts += 1
+			auto_skill_cursor = (index + 1) % skill_timers.size()
+			return
 
 
 func _manual_skill(index: int) -> void:
@@ -1083,6 +1104,7 @@ func _cast_skill(index: int) -> void:
 	if target == null:
 		return
 	skill_timers[index] = SKILL_COOLDOWNS[index]
+	auto_skill_cast_timer = AUTO_SKILL_CAST_GAP
 	hero_blood = maxf(0.0, hero_blood - SKILL_BLOOD_COSTS[index])
 	var base_damage := Rules.skill_damage(index, _attack_power(), int(progress.level),
 		_skill_level(index))

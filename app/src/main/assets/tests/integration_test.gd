@@ -28,6 +28,38 @@ func _run_simulation() -> void:
 		push_error("The battle HUD must meet the physical bottom edge on every portrait aspect")
 		quit(1)
 		return
+	var far_enemy = game._nearest_enemy()
+	if far_enemy == null:
+		push_error("Cooldown regression setup requires an active enemy")
+		quit(1)
+		return
+	far_enemy.position.x = 700.0
+	game.skill_timers[0] = 2.0
+	game.ui_timer = 0.0
+	game._process(0.5)
+	if absf(game.skill_timers[0] - 1.5) > 0.02 \
+			or game.skill_cooldown_labels[0].text.find("1.5") < 0:
+		push_error("Skill cooldowns must visibly tick while enemies are outside cast range")
+		quit(1)
+		return
+	var saved_level: int = int(game.progress.level)
+	var saved_blood: float = game.hero_blood
+	game.progress.level = 9
+	game.hero_blood = 999.0
+	for skill_index in range(game.skill_timers.size()):
+		game.skill_timers[skill_index] = 0.0
+	game.auto_skill_cursor = 3
+	game.auto_skill_cast_timer = 0.0
+	far_enemy.position.x = 470.0
+	far_enemy.set_health(100000, 100000)
+	game._update_auto_skills()
+	if absf(game.skill_timers[3] - game.SKILL_COOLDOWNS[3]) > 0.02 \
+			or game.auto_skill_cursor != 4 or game.auto_skill_cast_timer <= 0.0:
+		push_error("Automatic skills must cast a ready art and rotate slot priority")
+		quit(1)
+		return
+	game.progress.level = saved_level
+	game.hero_blood = saved_blood
 	var tall_height := 1560.0
 	var tall_panel_y: float = game._bottom_panel_y_for_height(tall_height)
 	var tall_ground_y: float = game._ground_y_for_height(tall_height)
@@ -71,6 +103,12 @@ func _run_simulation() -> void:
 		push_error("The main scene exited during the combat simulation")
 		quit(1)
 		return
+	if game.automatic_skill_casts < 5:
+		push_error("Automatic combat must cast skills repeatedly; observed only %d casts" %
+			game.automatic_skill_casts)
+		quit(1)
+		return
+	var observed_auto_casts: int = game.automatic_skill_casts
 	game.game_paused = true
 	# Stop producing combat callbacks, then let all scheduled VFX/story timers drain before
 	# freeing the scene. This keeps teardown errors distinct from actual gameplay failures.
@@ -84,7 +122,8 @@ func _run_simulation() -> void:
 	OS.delay_msec(300)
 	game = null
 	packed = null
-	print("GODOT INTEGRATION PASSED: 900-frame automatic combat simulation")
+	print("GODOT INTEGRATION PASSED: 900-frame combat, %d automatic skill casts" %
+		observed_auto_casts)
 	_finish.call_deferred()
 
 
