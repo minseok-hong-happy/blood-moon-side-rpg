@@ -62,8 +62,8 @@
 
 ## APK 다운로드
 
-- [VAYLORN 5.0.1 Engine Hotfix](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.0.1-engine-hotfix/VAYLORN-v5.0.1-engine-hotfix.apk)
-- SHA-256: `CDE6A28887BA59BBB63215A6FC4FC3367EAB9008D04375CA1D88FC0BC73F3D87`
+- [VAYLORN 5.1.0 Portrait UI](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.1.0-portrait-ui/VAYLORN-v5.1.0-portrait-ui.apk)
+- SHA-256: `48396155810E1D5299BA2FCA32B63D95D8BDF2F9DA9380524E1EFEC06E519F63`
 
 ## 빌드
 

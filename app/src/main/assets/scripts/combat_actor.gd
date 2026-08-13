@@ -57,10 +57,12 @@ func configure(frames: SpriteFrames, actor_scale: float, actor_kind: int,
 	add_child(sprite)
 
 	if not hero:
+		var bar_width := 172.0 if boss else (112.0 if elite else 92.0)
+		var bar_height := 10.0 if boss else (8.0 if elite else 7.0)
 		hp_back = ColorRect.new()
-		hp_back.position = Vector2(-42.0 if not boss else -86.0,
+		hp_back.position = Vector2(-bar_width * 0.5,
 			-cell_height * display_scale - (34.0 if boss else 17.0))
-		hp_back.size = Vector2(84.0 if not boss else 172.0, 7.0 if not boss else 10.0)
+		hp_back.size = Vector2(bar_width, bar_height)
 		hp_back.color = Color(0.025, 0.035, 0.07, 0.92)
 		hp_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(hp_back)
@@ -114,6 +116,15 @@ func heal(amount: int) -> int:
 	hp = mini(max_hp, hp + maxi(0, amount))
 	_update_health_bar()
 	return hp - before
+
+
+func set_health_bar_visible(value: bool) -> void:
+	if hp_back:
+		hp_back.visible = value
+	if hp_fill:
+		hp_fill.visible = value
+	if name_label:
+		name_label.visible = value
 
 
 func play_animation(animation_name: StringName, restart: bool = false) -> void:

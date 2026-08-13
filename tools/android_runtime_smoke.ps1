@@ -7,9 +7,10 @@ param(
     [string]$AndroidSdkRoot = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\android-sdk",
     [string]$AvdHome = "$env:LOCALAPPDATA\BloodMoonNightfall\runtime-smoke\avd",
     [string]$AvdName = "Vaylorn_X64_API24",
-    [string]$RequiredAbi = "x86_64",
-    [string]$EntropySeederPath = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\android-entropy-seed-x86_64",
-    [int]$BootTimeoutSeconds = 420,
+	[string]$RequiredAbi = "x86_64",
+	[string]$EntropySeederPath = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\android-entropy-seed-x86_64",
+	[string]$PortraitDisplaySize = "360x780",
+	[int]$BootTimeoutSeconds = 420,
     [int]$ReadyTimeoutSeconds = 600,
     [string]$ArtifactDirectory = ""
 )
@@ -82,7 +83,35 @@ function Write-Utf8Log {
     [IO.File]::WriteAllLines($Path, @($Lines | ForEach-Object { [string]$_ }), $utf8NoBom)
 }
 
+function Dismiss-SystemWaitDialog {
+    param([Parameter(Mandatory = $true)][string]$Serial)
+    $remoteHierarchy = '/data/local/tmp/vaylorn-window.xml'
+    Invoke-Adb -Arguments @('-s', $Serial, 'shell', 'uiautomator', 'dump',
+        $remoteHierarchy) -AllowFailure | Out-Null
+    $hierarchy = @(Invoke-Adb -Arguments @('-s', $Serial, 'shell', 'cat',
+        $remoteHierarchy) -AllowFailure) -join "`n"
+    foreach ($nodeMatch in [Regex]::Matches($hierarchy, '<node[^>]+>')) {
+        $node = $nodeMatch.Value
+        if ($node -notmatch 'text="(?:Wait|GOT IT)"') {
+            continue
+        }
+        $bounds = [Regex]::Match($node,
+            'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')
+        if (-not $bounds.Success) {
+            continue
+        }
+        $tapX = [int](([int]$bounds.Groups[1].Value + [int]$bounds.Groups[3].Value) / 2)
+        $tapY = [int](([int]$bounds.Groups[2].Value + [int]$bounds.Groups[4].Value) / 2)
+        Invoke-Adb -Arguments @('-s', $Serial, 'shell', 'input', 'tap',
+            [string]$tapX, [string]$tapY) | Out-Null
+        Start-Sleep -Seconds 3
+        return $true
+    }
+    return $false
+}
+
 $startedEmulator = $false
+$displayOverridden = $false
 $serial = Find-CompatibleSerial
 if (-not $serial) {
     if (-not (Test-Path -LiteralPath $EmulatorPath)) {
@@ -99,7 +128,8 @@ if (-not $serial) {
         '-avd', $AvdName, '-engine', 'qemu2', '-accel', 'off',
         '-feature', 'GLESDynamicVersion', '-no-window', '-no-audio',
         '-no-boot-anim', '-gpu', 'angle_indirect', '-no-snapshot',
-        '-no-snapshot-save', '-memory', '1024', '-cores', '2'
+        '-no-snapshot-save', '-skin', $PortraitDisplaySize,
+        '-memory', '2048', '-cores', '2'
     )
     Start-Process -FilePath $EmulatorPath -ArgumentList $arguments -WindowStyle Hidden | Out-Null
     $startedEmulator = $true
@@ -134,7 +164,7 @@ try {
     }
 
     $isEmulator = $serial -like 'emulator-*'
-    if ($isEmulator) {
+	if ($isEmulator) {
         $surfaceReport = @(Invoke-Adb -Arguments @('-s', $serial, 'shell', 'dumpsys',
             'SurfaceFlinger') -AllowFailure)
         if (($surfaceReport -join "`n") -notmatch 'GLES:.*OpenGL ES 3\.') {
@@ -160,14 +190,29 @@ try {
             '/data/local/tmp/vaylorn-entropy-seed') | Out-Null
         $seedResult = @(Invoke-Adb -Arguments @('-s', $serial, 'shell',
             '/data/local/tmp/vaylorn-entropy-seed'))
-        if (($seedResult -join "`n") -notmatch 'ANDROID_EMULATOR_ENTROPY_READY') {
-            throw "Emulator entropy setup failed.`n$($seedResult -join [Environment]::NewLine)"
-        }
-    }
+		if (($seedResult -join "`n") -notmatch 'ANDROID_EMULATOR_ENTROPY_READY') {
+			throw "Emulator entropy setup failed.`n$($seedResult -join [Environment]::NewLine)"
+		}
+		# Use a modern tall portrait aspect. This catches the black-bottom regression that
+		# a legacy 16:9 emulator cannot expose.
+		Invoke-Adb -Arguments @('-s', $serial, 'shell', 'wm', 'size', $PortraitDisplaySize) | Out-Null
+		$displayOverridden = $true
+	}
 
-    Write-Host "Runtime gate device: $serial"
-    Invoke-Adb -Arguments @('-s', $serial, 'install', '-r', $resolvedApk) | Write-Host
-    Invoke-Adb -Arguments @('-s', $serial, 'logcat', '-c') | Out-Null
+	Write-Host "Runtime gate device: $serial"
+	# Software-only API 24 boot occasionally reports a system-process ANR while it finishes
+	# background setup. Hide OS diagnostic dialogs so they cannot cover the game screenshot;
+	# the game process is still checked independently below for every fatal/ANR signature.
+	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'settings', 'put', 'global',
+		'hide_error_dialogs', '1') -AllowFailure | Out-Null
+	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'settings', 'put', 'secure',
+		'immersive_mode_confirmations', 'confirmed') -AllowFailure | Out-Null
+	Invoke-Adb -Arguments @('-s', $serial, 'install', '-r', $resolvedApk) | Write-Host
+	# A deterministic fresh profile prevents an old offline-reward modal from dimming the
+	# visual artifact and makes startup behavior independent of earlier QA runs.
+	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'pm', 'clear',
+		'com.example.bloodmoonnightfall') | Out-Null
+	Invoke-Adb -Arguments @('-s', $serial, 'logcat', '-c') | Out-Null
     Invoke-Adb -Arguments @('-s', $serial, 'shell', 'am', 'force-stop',
         'com.example.bloodmoonnightfall') | Out-Null
     $startOutput = @(Invoke-Adb -Arguments @('-s', $serial, 'shell', 'am', 'start', '-W',
@@ -219,14 +264,72 @@ try {
     $postLog = @(Invoke-Adb -Arguments @('-s', $serial, 'logcat', '-d', '-v', 'threadtime') `
         -AllowFailure)
     Write-Utf8Log -Path (Join-Path $resolvedArtifacts 'logcat.txt') -Lines $postLog
-    if (($postLog -join "`n") -match
-            'Process: com\.example\.bloodmoonnightfall|>>> com\.example\.bloodmoonnightfall <<<|JNI DETECTED ERROR') {
-        throw 'Java/JNI/native crash was recorded for the game process.'
-    }
+	if (($postLog -join "`n") -match
+			'Process: com\.example\.bloodmoonnightfall|>>> com\.example\.bloodmoonnightfall <<<|JNI DETECTED ERROR') {
+		throw 'Java/JNI/native crash was recorded for the game process.'
+	}
+	$layoutMatch = [Regex]::Match(($postLog -join "`n"),
+		'VAYLORN_UI_LAYOUT_READY height=([0-9.]+) bottom=([0-9.]+) ground=([0-9.]+)')
+	if (-not $layoutMatch.Success) {
+		throw 'Tall-screen layout marker was not reported by the game scene.'
+	}
+	$layoutHeight = [double]$layoutMatch.Groups[1].Value
+	$layoutBottom = [double]$layoutMatch.Groups[2].Value
+	$layoutGround = [double]$layoutMatch.Groups[3].Value
+	if ($layoutHeight -lt 1500.0 -or
+			[Math]::Abs(($layoutBottom + 354.0) - $layoutHeight) -gt 1.0 -or
+			$layoutGround -ge $layoutBottom) {
+		throw "Tall-screen layout contract failed: height=$layoutHeight bottom=$layoutBottom ground=$layoutGround"
+	}
+	for ($dialogAttempt = 0; $dialogAttempt -lt 3; $dialogAttempt++) {
+		if (-not (Dismiss-SystemWaitDialog -Serial $serial)) {
+			break
+		}
+	}
 
-    Write-Host 'ANDROID_RUNTIME_SMOKE_PASS'
+	$remoteScreenshot = '/data/local/tmp/vaylorn-runtime-smoke.png'
+	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'screencap', '-p', $remoteScreenshot) | Out-Null
+	Invoke-Adb -Arguments @('-s', $serial, 'pull', $remoteScreenshot,
+		(Join-Path $resolvedArtifacts 'first-frame.png')) | Out-Null
+	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'rm', $remoteScreenshot) -AllowFailure | Out-Null
+	$screenshotPath = Join-Path $resolvedArtifacts 'first-frame.png'
+	if (-not (Test-Path -LiteralPath $screenshotPath) -or
+			(Get-Item -LiteralPath $screenshotPath).Length -lt 10000) {
+		throw 'Runtime gate could not capture a valid tall-screen frame.'
+	}
+	Add-Type -AssemblyName System.Drawing
+	$bitmap = [Drawing.Bitmap]::new($screenshotPath)
+	try {
+		if (($bitmap.Height / [double]$bitmap.Width) -lt 1.9) {
+			throw "Runtime screenshot is not tall portrait: $($bitmap.Width)x$($bitmap.Height)"
+		}
+		# The marker above proves the logical 720x1560 layout; these pixels prove the
+		# physical bottom edge is visibly painted rather than left as an empty black band.
+		$sampleCount = 0
+		$visibleSampleCount = 0
+		$bottomStart = [Math]::Floor($bitmap.Height * 0.84)
+		for ($y = $bottomStart; $y -lt $bitmap.Height; $y += 4) {
+			for ($x = 0; $x -lt $bitmap.Width; $x += 4) {
+				$pixel = $bitmap.GetPixel($x, $y)
+				$sampleCount++
+				if ([Math]::Max($pixel.R, [Math]::Max($pixel.G, $pixel.B)) -ge 22) {
+					$visibleSampleCount++
+				}
+			}
+		}
+		if ($sampleCount -eq 0 -or ($visibleSampleCount / [double]$sampleCount) -lt 0.03) {
+			throw 'Tall-screen bottom-area visual gate detected an empty black band.'
+		}
+	} finally {
+		$bitmap.Dispose()
+	}
+
+	Write-Host 'ANDROID_RUNTIME_SMOKE_PASS'
 } finally {
-    if ($startedEmulator -and $serial) {
+	if ($displayOverridden -and $serial) {
+		Invoke-Adb -Arguments @('-s', $serial, 'shell', 'wm', 'size', 'reset') -AllowFailure | Out-Null
+	}
+	if ($startedEmulator -and $serial) {
         Invoke-Adb -Arguments @('-s', $serial, 'emu', 'kill') -AllowFailure | Out-Null
     }
 }

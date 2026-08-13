@@ -36,7 +36,10 @@ const SFX_LEVEL = preload("res://audio/sfx_level_up.wav")
 const SFX_TAP = preload("res://audio/sfx_ui_tap.wav")
 
 const VIEW_SIZE := Vector2(720.0, 1280.0)
-const GROUND_Y := 842.0
+const BASE_GROUND_Y := 842.0
+const BOTTOM_PANEL_HEIGHT := 354.0
+const SKILL_CARD_SIZE := Vector2(164.0, 112.0)
+const SKILL_ICON_RECT := Rect2(12.0, 10.0, 66.0, 66.0)
 const HERO_START_X := 132.0
 const COMBAT_LINE_X := 430.0
 const SKILL_ENGAGE_X := 520.0
@@ -64,9 +67,14 @@ var world: Node2D
 var actor_layer: Node2D
 var effect_layer: Node2D
 var background_sprite: Sprite2D
+var background_readability: ColorRect
+var horizon_glow: Polygon2D
 var ambient_layer: Node2D
 var ui_root: Control
 var screen_flash: ColorRect
+var bottom_panel: Panel
+var layout_size := VIEW_SIZE
+var ground_y := BASE_GROUND_Y
 
 var hero_hp := 1
 var hero_blood := 0.0
@@ -116,6 +124,12 @@ var boss_health_text: Label
 var skill_buttons: Array[Button] = []
 var skill_cooldown_overlays: Array[ColorRect] = []
 var skill_state_labels: Array[Label] = []
+var skill_cooldown_labels: Array[Label] = []
+var reward_toast: Panel
+var reward_toast_label: Label
+var reward_toast_tween: Tween
+var reward_toast_xp := 0
+var reward_toast_gold := 0
 var growth_overlay: Control
 var inventory_overlay: Control
 var pause_overlay: Control
@@ -140,6 +154,8 @@ func _ready() -> void:
 	_apply_offline_reward()
 	_start_audio()
 	_start_wave()
+	print("VAYLORN_UI_LAYOUT_READY height=%.1f bottom=%.1f ground=%.1f" % [
+		layout_size.y, bottom_panel.position.y, ground_y])
 	# Emit a Godot-side marker before optional presentation work. The Java bridge marker remains
 	# defense in depth, but release QA must not depend on plugin reflection to prove scene startup.
 	print("VAYLORN_GAME_READY")
@@ -209,6 +225,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _build_scene() -> void:
+	_resolve_layout()
 	_build_background()
 	world = Node2D.new()
 	world.name = "CombatWorld"
@@ -223,7 +240,7 @@ func _build_scene() -> void:
 
 	hero = ActorScene.new()
 	hero.configure(Atlases.hero_frames(HERO_TEXTURE), 0.53, -1, "카엘", true)
-	hero.position = Vector2(HERO_START_X, GROUND_Y)
+	hero.position = Vector2(HERO_START_X, ground_y)
 	hero.z_index = 8
 	actor_layer.add_child(hero)
 
@@ -232,30 +249,48 @@ func _build_scene() -> void:
 	_build_audio_pool()
 
 
+func _resolve_layout() -> void:
+	var viewport_size := get_viewport_rect().size
+	layout_size = Vector2(maxf(VIEW_SIZE.x, viewport_size.x),
+		maxf(VIEW_SIZE.y, viewport_size.y))
+	ground_y = _ground_y_for_height(layout_size.y)
+
+
+func _bottom_panel_y_for_height(height: float) -> float:
+	return maxf(0.0, height - BOTTOM_PANEL_HEIGHT)
+
+
+func _ground_y_for_height(height: float) -> float:
+	return BASE_GROUND_Y + maxf(0.0, height - VIEW_SIZE.y)
+
+
 func _build_background() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = -10
 	add_child(layer)
 	background_sprite = Sprite2D.new()
 	background_sprite.texture = BACKGROUNDS[int(progress.region)]
-	background_sprite.position = VIEW_SIZE * 0.5
-	background_sprite.scale = Vector2(VIEW_SIZE.x / background_sprite.texture.get_width(),
-		VIEW_SIZE.y / background_sprite.texture.get_height())
+	background_sprite.position = layout_size * 0.5
+	var cover_scale := maxf(layout_size.x / background_sprite.texture.get_width(),
+		layout_size.y / background_sprite.texture.get_height())
+	background_sprite.scale = Vector2.ONE * cover_scale
 	background_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	layer.add_child(background_sprite)
 
-	var readability := ColorRect.new()
-	readability.position = Vector2.ZERO
-	readability.size = VIEW_SIZE
-	readability.color = Color(0.018, 0.025, 0.07, 0.12)
-	readability.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(readability)
+	background_readability = ColorRect.new()
+	background_readability.position = Vector2.ZERO
+	background_readability.size = layout_size
+	background_readability.color = Color(0.018, 0.025, 0.07, 0.08)
+	background_readability.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(background_readability)
 
-	var horizon_glow := Polygon2D.new()
+	horizon_glow = Polygon2D.new()
 	horizon_glow.polygon = PackedVector2Array([
-		Vector2(0, 590), Vector2(720, 590), Vector2(720, 930), Vector2(0, 930),
+		Vector2(0, ground_y - 252.0), Vector2(layout_size.x, ground_y - 252.0),
+		Vector2(layout_size.x, _bottom_panel_y_for_height(layout_size.y) + 12.0),
+		Vector2(0, _bottom_panel_y_for_height(layout_size.y) + 12.0),
 	])
-	horizon_glow.color = Color(0.42, 0.06, 0.16, 0.08)
+	horizon_glow.color = Color(0.48, 0.08, 0.19, 0.10)
 	layer.add_child(horizon_glow)
 
 	ambient_layer = Node2D.new()
@@ -267,7 +302,8 @@ func _build_background() -> void:
 			Vector2(-radius, 0), Vector2(0, -radius * 1.8),
 			Vector2(radius, 0), Vector2(0, radius * 1.8),
 		])
-		mote.position = Vector2(randf_range(10, 710), randf_range(330, 950))
+		mote.position = Vector2(randf_range(10, layout_size.x - 10.0),
+			randf_range(330, ground_y + 108.0))
 		mote.color = Color(1.0, randf_range(0.14, 0.42), 0.22, randf_range(0.16, 0.42))
 		mote.set_meta("speed", randf_range(7.0, 19.0))
 		mote.set_meta("phase", randf_range(0.0, TAU))
@@ -285,39 +321,46 @@ func _build_ui() -> void:
 	theme.default_font_size = 16
 	ui_root.theme = theme
 	ui_layer.add_child(ui_root)
+	var content_x := (layout_size.x - VIEW_SIZE.x) * 0.5
 
 	var top_panel := Panel.new()
-	top_panel.position = Vector2(18, 22)
+	top_panel.position = Vector2(content_x + 18, 18)
 	top_panel.size = Vector2(684, 225)
 	top_panel.add_theme_stylebox_override("panel", _panel_style(
-		Color(0.018, 0.025, 0.07, 0.91), Color(0.60, 0.44, 0.24, 0.78), 22, 2))
+		Color(0.012, 0.020, 0.058, 0.965), Color(0.72, 0.51, 0.25, 0.90), 22, 2))
 	ui_root.add_child(top_panel)
 
-	level_label = _label(top_panel, Vector2(20, 13), Vector2(112, 35), "LV.1", 28,
+	level_label = _label(top_panel, Vector2(20, 11), Vector2(112, 36), "LV.1", 27,
 		Color(0.96, 0.98, 1.0))
-	location_label = _label(top_panel, Vector2(128, 16), Vector2(360, 30), "", 17,
-		Color(0.77, 0.84, 0.93))
+	location_label = _label(top_panel, Vector2(128, 14), Vector2(350, 31), "", 17,
+		Color(0.82, 0.89, 0.98))
 	currency_label = _label(top_panel, Vector2(480, 16), Vector2(132, 30), "◆ 0", 18,
 		Color(1.0, 0.79, 0.29), HORIZONTAL_ALIGNMENT_RIGHT)
 
-	var pause_button := _button(top_panel, Vector2(620, 9), Vector2(48, 48), "Ⅱ", 18)
+	var pause_button := _button(top_panel, Vector2(620, 7), Vector2(48, 48), "Ⅱ", 18)
 	pause_button.pressed.connect(_toggle_pause)
-	var hp_bar := _bar(top_panel, Vector2(18, 59), Vector2(648, 23),
+	var header_divider := ColorRect.new()
+	header_divider.position = Vector2(18, 54)
+	header_divider.size = Vector2(590, 1)
+	header_divider.color = Color(0.57, 0.70, 0.92, 0.20)
+	header_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_panel.add_child(header_divider)
+	var hp_bar := _bar(top_panel, Vector2(18, 61), Vector2(648, 25),
 		Color(0.76, 0.035, 0.20), "생명")
 	hp_fill = hp_bar[0]
 	hp_text = hp_bar[1]
-	var blood_bar := _bar(top_panel, Vector2(18, 91), Vector2(648, 19),
+	var blood_bar := _bar(top_panel, Vector2(18, 94), Vector2(648, 22),
 		Color(0.08, 0.66, 0.84), "혈기")
 	blood_fill = blood_bar[0]
 	blood_text = blood_bar[1]
-	var xp_bar := _bar(top_panel, Vector2(18, 119), Vector2(648, 17),
+	var xp_bar := _bar(top_panel, Vector2(18, 124), Vector2(648, 20),
 		Color(0.48, 0.31, 0.88), "경험치")
 	xp_fill = xp_bar[0]
 	xp_text = xp_bar[1]
-	objective_label = _label(top_panel, Vector2(22, 150), Vector2(440, 29), "", 16,
+	objective_label = _label(top_panel, Vector2(22, 151), Vector2(440, 29), "", 16,
 		Color(0.94, 0.96, 1.0))
-	stats_label = _label(top_panel, Vector2(22, 183), Vector2(420, 27), "", 14,
-		Color(0.62, 0.72, 0.84))
+	stats_label = _label(top_panel, Vector2(22, 184), Vector2(420, 27), "", 14,
+		Color(0.72, 0.81, 0.94))
 	var inventory_button := _button(top_panel, Vector2(463, 162), Vector2(94, 47), "가방", 15)
 	inventory_button.add_theme_color_override("font_color", Color(0.25, 0.87, 1.0))
 	inventory_button.pressed.connect(func(): _open_overlay(inventory_overlay))
@@ -326,10 +369,10 @@ func _build_ui() -> void:
 	growth_button.pressed.connect(func(): _open_overlay(growth_overlay))
 
 	story_panel = Panel.new()
-	story_panel.position = Vector2(28, 263)
+	story_panel.position = Vector2(content_x + 28, 263)
 	story_panel.size = Vector2(664, 96)
 	story_panel.add_theme_stylebox_override("panel", _panel_style(
-		Color(0.025, 0.035, 0.09, 0.88), Color(0.39, 0.75, 0.91, 0.65), 15, 1))
+		Color(0.018, 0.032, 0.085, 0.94), Color(0.35, 0.79, 0.98, 0.80), 15, 2))
 	ui_root.add_child(story_panel)
 	story_speaker = _label(story_panel, Vector2(18, 10), Vector2(130, 25), "", 15,
 		Color(0.35, 0.88, 1.0))
@@ -338,7 +381,7 @@ func _build_ui() -> void:
 	story_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	boss_panel = Panel.new()
-	boss_panel.position = Vector2(60, 381)
+	boss_panel.position = Vector2(content_x + 60, 381)
 	boss_panel.size = Vector2(600, 66)
 	boss_panel.add_theme_stylebox_override("panel", _panel_style(
 		Color(0.08, 0.015, 0.035, 0.92), Color(0.98, 0.58, 0.20, 0.82), 13, 2))
@@ -351,79 +394,133 @@ func _build_ui() -> void:
 	boss_health_fill = boss_bar[0]
 	boss_health_text = boss_bar[1]
 
-	banner_label = _label(ui_root, Vector2(90, 465), Vector2(540, 58), "", 24,
+	banner_label = _label(ui_root, Vector2(content_x + 90, 465), Vector2(540, 58), "", 24,
 		Color(1.0, 0.82, 0.43), HORIZONTAL_ALIGNMENT_CENTER)
 	banner_label.add_theme_color_override("font_shadow_color", Color(0.04, 0.01, 0.08, 0.98))
 	banner_label.add_theme_constant_override("shadow_offset_x", 3)
 	banner_label.add_theme_constant_override("shadow_offset_y", 3)
 	banner_label.modulate.a = 0.0
 
-	var bottom_panel := Panel.new()
-	bottom_panel.position = Vector2(0, 926)
-	bottom_panel.size = Vector2(720, 354)
+	reward_toast = Panel.new()
+	reward_toast.position = Vector2(content_x + 394, ground_y - 250.0)
+	reward_toast.size = Vector2(300, 44)
+	reward_toast.add_theme_stylebox_override("panel", _panel_style(
+		Color(0.020, 0.025, 0.065, 0.94), Color(1.0, 0.64, 0.20, 0.82), 14, 1))
+	reward_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reward_toast.visible = false
+	ui_root.add_child(reward_toast)
+	reward_toast_label = _label(reward_toast, Vector2(10, 3), Vector2(280, 38), "", 16,
+		Color(1.0, 0.82, 0.38), HORIZONTAL_ALIGNMENT_CENTER)
+
+	bottom_panel = Panel.new()
+	bottom_panel.position = Vector2(0, _bottom_panel_y_for_height(layout_size.y))
+	bottom_panel.size = Vector2(layout_size.x, BOTTOM_PANEL_HEIGHT)
 	bottom_panel.add_theme_stylebox_override("panel", _panel_style(
-		Color(0.012, 0.021, 0.055, 0.94), Color(0.18, 0.53, 0.65, 0.52), 0, 1))
+		Color(0.008, 0.016, 0.048, 0.985), Color(0.20, 0.69, 0.86, 0.70), 0, 2))
 	ui_root.add_child(bottom_panel)
-	auto_label = _label(bottom_panel, Vector2(24, 13), Vector2(672, 48),
-		"AUTO BATTLE  ●  자동 추격 · 기본 공격 · 8종 혈술 연계", 16,
+	var bottom_content_x := (layout_size.x - VIEW_SIZE.x) * 0.5
+	var auto_strip := Panel.new()
+	auto_strip.position = Vector2(bottom_content_x + 24, 10)
+	auto_strip.size = Vector2(672, 39)
+	auto_strip.add_theme_stylebox_override("panel", _panel_style(
+		Color(0.025, 0.056, 0.105, 0.96), Color(0.24, 0.84, 1.0, 0.88), 13, 1))
+	bottom_panel.add_child(auto_strip)
+	auto_label = _label(auto_strip, Vector2(12, 2), Vector2(648, 35),
+		"●  AUTO HUNT   자동 추격 · 기본 공격 · 혈술 연계", 15,
 		Color(0.35, 0.88, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
-	var wave_bar := _bar(bottom_panel, Vector2(28, 59), Vector2(664, 14),
+	var wave_bar := _bar(bottom_panel, Vector2(bottom_content_x + 28, 57), Vector2(664, 24),
 		Color(0.84, 0.19, 0.42), "")
 	wave_fill = wave_bar[0]
 	wave_text = wave_bar[1]
-	_build_skill_grid(bottom_panel)
+	_build_skill_grid(bottom_panel, bottom_content_x)
 
 	screen_flash = ColorRect.new()
 	screen_flash.position = Vector2.ZERO
-	screen_flash.size = VIEW_SIZE
+	screen_flash.size = layout_size
 	screen_flash.color = Color(0.92, 0.06, 0.25, 0.0)
 	screen_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(screen_flash)
 
 
-func _build_skill_grid(parent: Control) -> void:
+func _build_skill_grid(parent: Control, content_x: float = 0.0) -> void:
 	for index in range(SKILL_NAMES.size()):
 		var column := index % 4
-		var row := index / 4
+		var row := int(index / 4)
 		var button := Button.new()
-		button.position = Vector2(20 + column * 172, 84 + row * 126)
-		button.size = Vector2(164, 116)
+		button.position = Vector2(content_x + 20 + column * 172, 92 + row * 121)
+		button.size = SKILL_CARD_SIZE
 		button.focus_mode = Control.FOCUS_NONE
 		button.clip_contents = true
 		button.add_theme_stylebox_override("normal", _panel_style(
-			Color(0.025, 0.035, 0.08, 0.92), _skill_color(index, 0.72), 17, 2))
+			Color(0.020, 0.030, 0.075, 0.98), _skill_color(index, 0.84), 17, 2))
 		button.add_theme_stylebox_override("hover", _panel_style(
-			Color(0.055, 0.055, 0.12, 0.97), _skill_color(index, 0.95), 17, 2))
+			Color(0.055, 0.055, 0.12, 0.99), _skill_color(index, 0.98), 17, 2))
 		button.add_theme_stylebox_override("pressed", _panel_style(
-			Color(0.16, 0.025, 0.08, 0.98), Color(1.0, 0.72, 0.33), 17, 3))
+			Color(0.16, 0.025, 0.08, 0.99), Color(1.0, 0.72, 0.33), 17, 3))
+		button.add_theme_stylebox_override("disabled", _panel_style(
+			Color(0.018, 0.024, 0.055, 0.98), Color(0.30, 0.34, 0.47, 0.78), 17, 1))
 		button.pressed.connect(_manual_skill.bind(index))
 		parent.add_child(button)
 
+		var accent := ColorRect.new()
+		accent.position = Vector2(5, 16)
+		accent.size = Vector2(3, 82)
+		accent.color = _skill_color(index, 0.90)
+		accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(accent)
+
+		var icon_shell := Panel.new()
+		icon_shell.position = SKILL_ICON_RECT.position
+		icon_shell.size = SKILL_ICON_RECT.size
+		icon_shell.clip_contents = true
+		icon_shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_shell.add_theme_stylebox_override("panel", _panel_style(
+			Color(0.045, 0.038, 0.095, 0.98), _skill_color(index, 0.78), 12, 1))
+		button.add_child(icon_shell)
+
 		var icon := TextureRect.new()
 		icon.texture = Atlases.frame(EFFECT_ICONS, 4, 2, column, row)
-		icon.position = Vector2(50, 4)
-		icon.size = Vector2(64, 64)
+		icon.position = Vector2(4, 4)
+		icon.size = Vector2(58, 58)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(icon)
-		var title := _label(button, Vector2(5, 70), Vector2(154, 22), SKILL_NAMES[index], 15,
-			Color(0.95, 0.97, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
-		title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var state := _label(button, Vector2(4, 91), Vector2(156, 19), SKILL_SUBTITLES[index], 11,
-			Color(0.48, 0.77, 0.89), HORIZONTAL_ALIGNMENT_CENTER)
-		state.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_shell.add_child(icon)
+
 		var cooldown := ColorRect.new()
-		cooldown.position = Vector2(0, 0)
-		cooldown.size = Vector2(164, 0)
-		cooldown.color = Color(0.008, 0.012, 0.035, 0.42)
+		cooldown.position = Vector2(4, 4)
+		cooldown.size = Vector2(58, 0)
+		cooldown.color = Color(0.004, 0.008, 0.028, 0.80)
 		cooldown.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(cooldown)
-		button.move_child(cooldown, button.get_child_count() - 1)
+		icon_shell.add_child(cooldown)
+		var cooldown_label := _label(icon_shell, Vector2(4, 4), Vector2(58, 58), "", 18,
+			Color(1.0, 0.94, 0.84), HORIZONTAL_ALIGNMENT_CENTER)
+
+		var title := _label(button, Vector2(86, 9), Vector2(68, 25), SKILL_NAMES[index], 16,
+			Color(0.97, 0.98, 1.0), HORIZONTAL_ALIGNMENT_LEFT)
+		title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var subtitle := _label(button, Vector2(86, 34), Vector2(68, 19),
+			SKILL_SUBTITLES[index], 12, _skill_color(index, 0.95), HORIZONTAL_ALIGNMENT_LEFT)
+		subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var cost := _label(button, Vector2(86, 55), Vector2(68, 19),
+			"혈기 %d" % SKILL_BLOOD_COSTS[index], 12, Color(0.63, 0.82, 0.94),
+			HORIZONTAL_ALIGNMENT_LEFT)
+		cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var state_back := ColorRect.new()
+		state_back.position = Vector2(12, 83)
+		state_back.size = Vector2(140, 21)
+		state_back.color = Color(0.035, 0.075, 0.12, 0.90)
+		state_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(state_back)
+		var state := _label(button, Vector2(12, 83), Vector2(140, 21), "AUTO · 준비", 12,
+			Color(0.37, 0.90, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
+		state.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.set_meta("icon_rect", SKILL_ICON_RECT)
 
 		skill_buttons.append(button)
 		skill_cooldown_overlays.append(cooldown)
 		skill_state_labels.append(state)
+		skill_cooldown_labels.append(cooldown_label)
 
 
 func _build_overlays() -> void:
@@ -496,18 +593,19 @@ func _build_overlays() -> void:
 func _overlay_shell(title: String, panel_height: float = 760.0) -> Control:
 	var overlay := Control.new()
 	overlay.position = Vector2.ZERO
-	overlay.size = VIEW_SIZE
+	overlay.size = layout_size
 	overlay.visible = false
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_root.add_child(overlay)
 	var dim := ColorRect.new()
 	dim.position = Vector2.ZERO
-	dim.size = VIEW_SIZE
+	dim.size = layout_size
 	dim.color = Color(0.005, 0.008, 0.025, 0.88)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.add_child(dim)
 	var panel := Panel.new()
-	panel.position = Vector2(38, (1280.0 - panel_height) * 0.5)
+	panel.position = Vector2((layout_size.x - 644.0) * 0.5,
+		(layout_size.y - panel_height) * 0.5)
 	panel.size = Vector2(644, panel_height)
 	panel.add_theme_stylebox_override("panel", _panel_style(
 		Color(0.018, 0.026, 0.068, 0.985), Color(0.53, 0.39, 0.71, 0.88), 24, 2))
@@ -530,6 +628,9 @@ func _label(parent: Node, position_value: Vector2, size_value: Vector2, text_val
 	result.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	result.add_theme_font_size_override("font_size", font_size)
 	result.add_theme_color_override("font_color", color)
+	result.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.025, 0.82))
+	result.add_theme_constant_override("shadow_offset_x", 1)
+	result.add_theme_constant_override("shadow_offset_y", 1)
 	result.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(result)
 	return result
@@ -544,6 +645,9 @@ func _button(parent: Node, position_value: Vector2, size_value: Vector2,
 	result.focus_mode = Control.FOCUS_NONE
 	result.add_theme_font_size_override("font_size", font_size)
 	result.add_theme_color_override("font_color", Color(0.88, 0.92, 0.98))
+	result.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.02, 0.88))
+	result.add_theme_constant_override("shadow_offset_x", 1)
+	result.add_theme_constant_override("shadow_offset_y", 1)
 	result.add_theme_stylebox_override("normal", _panel_style(
 		Color(0.035, 0.052, 0.11, 0.96), Color(0.31, 0.52, 0.68, 0.75), 13, 1))
 	result.add_theme_stylebox_override("hover", _panel_style(
@@ -559,7 +663,7 @@ func _bar(parent: Node, position_value: Vector2, size_value: Vector2,
 	var back := ColorRect.new()
 	back.position = position_value
 	back.size = size_value
-	back.color = Color(0.02, 0.025, 0.06, 0.90)
+	back.color = Color(0.010, 0.016, 0.046, 0.97)
 	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(back)
 	var fill := ColorRect.new()
@@ -568,7 +672,8 @@ func _bar(parent: Node, position_value: Vector2, size_value: Vector2,
 	fill.color = color
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	back.add_child(fill)
-	var text_label := _label(back, Vector2.ZERO, size_value, prefix, maxi(10, int(size_value.y - 7)),
+	var text_label := _label(back, Vector2.ZERO, size_value, prefix,
+		maxi(13, int(size_value.y * 0.64)),
 		Color(0.96, 0.97, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
 	return [fill, text_label]
 
@@ -658,7 +763,7 @@ func _start_wave() -> void:
 	spawn_serial = 0
 	wave_transition_timer = -1.0
 	story_midpoint_shown = false
-	hero.position = Vector2(HERO_START_X, GROUND_Y)
+	hero.position = Vector2(HERO_START_X, ground_y)
 	hero.modulate = Color.WHITE
 	hero.dead = false
 	hero.play_animation(&"idle", true)
@@ -711,8 +816,8 @@ func _spawn_enemy() -> void:
 		actor_name = "정예 · 피안개 추적자" if elite else ""
 	actor.configure(frames, actor_scale, kind, actor_name, false, boss, elite)
 	actor.position = Vector2(748.0 + randf_range(0.0, 65.0) + enemies.size() * 22.0,
-		GROUND_Y + randf_range(-12.0, 13.0))
-	actor.z_index = 7 + int(actor.position.y - GROUND_Y) / 6
+		ground_y + randf_range(-12.0, 13.0))
+	actor.z_index = 7 + int(actor.position.y - ground_y) / 6
 	actor.set_facing_right(false)
 	var maximum := Rules.enemy_max_health(kind, int(progress.region), int(progress.wave),
 		int(progress.level), int(progress.chapter_clears))
@@ -785,6 +890,10 @@ func _update_enemies(delta: float) -> void:
 		if meta.is_empty():
 			continue
 		var is_boss: bool = bool(meta.get("boss", false))
+		# The global boss bar carries boss health. In-world bars are reserved for the
+		# current target and a nearby elite so crowded waves remain readable.
+		enemy.set_health_bar_visible(not is_boss and
+			(index == 0 or (bool(meta.get("elite", false)) and index <= 2)))
 		var spacing := 44.0 if is_boss else 31.0
 		var desired_x := maxf(COMBAT_LINE_X + index * spacing,
 			hero.position.x + (116.0 if is_boss else 82.0) + index * 8.0)
@@ -917,7 +1026,7 @@ func _revive_hero() -> void:
 	_clear_enemies()
 	hero.dead = false
 	hero.modulate = Color.WHITE
-	hero.position = Vector2(HERO_START_X, GROUND_Y)
+	hero.position = Vector2(HERO_START_X, ground_y)
 	hero_hp = _hero_max_health()
 	hero_blood = float(_hero_max_blood())
 	hero.set_health(hero_hp, _hero_max_health())
@@ -993,12 +1102,13 @@ func _show_skill_callout(index: int) -> void:
 	var state := skill_state_labels[index]
 	state.text = "AUTO · 발동"
 	state.add_theme_color_override("font_color", Color(1.0, 0.82, 0.38))
+	var button := skill_buttons[index]
+	button.pivot_offset = button.size * 0.5
 	var tween := create_tween()
-	tween.tween_interval(0.45)
-	tween.tween_callback(func():
-		if is_instance_valid(state):
-			state.text = SKILL_SUBTITLES[index]
-			state.add_theme_color_override("font_color", Color(0.48, 0.77, 0.89)))
+	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", Vector2(1.035, 1.035), 0.07)
+	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(button, "scale", Vector2.ONE, 0.11)
 
 
 func _skill_blood_spear(target: CombatActor, damage: int) -> void:
@@ -1049,7 +1159,7 @@ func _skill_siphon(target: CombatActor, damage: int) -> void:
 func _skill_nova(damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_NOVA, -3.0, 0.95)
-	var center := Vector2(maxf(hero.position.x + 75.0, COMBAT_LINE_X), GROUND_Y - 90.0)
+	var center := Vector2(maxf(hero.position.x + 75.0, COMBAT_LINE_X), ground_y - 90.0)
 	for pulse in range(3):
 		var effect := _effect_sprite(EFFECT_A, 2, center, 0.45 + pulse * 0.12,
 			Color(1.0, 0.22 + pulse * 0.10, 0.48, 0.88))
@@ -1086,7 +1196,7 @@ func _skill_vein_rush(damage: int) -> void:
 		_apply_damage(enemy, int(damage * 0.84), false, Color(0.30, 0.86, 1.0))
 		_spawn_streak(origin + Vector2(20, -110), enemy.position + Vector2(0, -95),
 			Color(0.20, 0.80, 1.0, 0.72), 8.0)
-	_spawn_burst(Vector2(target_x, GROUND_Y - 78), Color(0.30, 0.87, 1.0, 0.88), 22, 185.0)
+	_spawn_burst(Vector2(target_x, ground_y - 78), Color(0.30, 0.87, 1.0, 0.88), 22, 185.0)
 	shake_energy = maxf(shake_energy, 2.4)
 
 
@@ -1100,7 +1210,7 @@ func _skill_scarlet_rain(damage: int) -> void:
 	for drop in range(7):
 		var x := 365.0 + drop * 47.0 + randf_range(-16.0, 16.0)
 		var start := Vector2(x, 420.0 - randf_range(0, 90))
-		var finish := Vector2(x - 35.0, GROUND_Y - 65.0)
+		var finish := Vector2(x - 35.0, ground_y - 65.0)
 		var effect := _effect_sprite(EFFECT_B, 0, start, 0.42, Color(1.0, 0.42, 0.62, 0.94))
 		effect.rotation = 1.78
 		var tween := create_tween().set_parallel(true)
@@ -1110,7 +1220,7 @@ func _skill_scarlet_rain(damage: int) -> void:
 	for enemy in targets:
 		if is_instance_valid(enemy) and not enemy.dead:
 			_apply_damage(enemy, int(damage * 0.76), false, Color(1.0, 0.30, 0.51))
-	_spawn_radial_slashes(Vector2(520, GROUND_Y - 75), Color(1.0, 0.10, 0.33, 0.74), 8, 190.0)
+	_spawn_radial_slashes(Vector2(520, ground_y - 75), Color(1.0, 0.10, 0.33, 0.74), 8, 190.0)
 
 
 func _skill_chain(damage: int) -> void:
@@ -1154,7 +1264,7 @@ func _skill_pillar(target: CombatActor, damage: int) -> void:
 func _skill_eclipse(damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_NOVA, -1.5, 0.72)
-	var center := Vector2(500.0, GROUND_Y - 175.0)
+	var center := Vector2(500.0, ground_y - 175.0)
 	var eclipse := _effect_sprite(EFFECT_B, 3, center, 0.72, Color(0.90, 0.65, 1.0, 0.96))
 	eclipse.rotation = -0.35
 	var tween := create_tween().set_parallel(true)
@@ -1175,7 +1285,7 @@ func _eclipse_hit(damage: int, pulse: int) -> void:
 		if is_instance_valid(enemy) and not enemy.dead and enemy.position.x <= SKILL_ENGAGE_X:
 			_apply_damage(enemy, int(damage * (0.46 if pulse < 2 else 0.72)), pulse == 2,
 				Color(0.83, 0.46, 1.0))
-	_spawn_impact(Vector2(500 + randf_range(-90, 90), GROUND_Y - randf_range(55, 145)),
+	_spawn_impact(Vector2(500 + randf_range(-90, 90), ground_y - randf_range(55, 145)),
 		2, 1.0 + pulse * 0.13)
 
 
@@ -1506,21 +1616,34 @@ func _spawn_damage_label(position_value: Vector2, value: int, color: Color,
 	tween.chain().tween_callback(label.queue_free)
 
 
-func _spawn_reward_label(position_value: Vector2, xp: int, gold: int) -> void:
-	var label := Label.new()
-	label.text = "+%d XP   ·   +%d G" % [xp, gold]
-	label.position = position_value - Vector2(100, 15)
-	label.size = Vector2(200, 32)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_override("font", UI_FONT)
-	label.add_theme_font_size_override("font_size", 16)
-	label.add_theme_color_override("font_color", Color(1.0, 0.80, 0.34))
-	label.z_index = 38
-	effect_layer.add_child(label)
-	var tween := create_tween().set_parallel(true)
-	tween.tween_property(label, "position:y", label.position.y - 42.0, 0.70)
-	tween.tween_property(label, "modulate:a", 0.0, 0.26).set_delay(0.48)
-	tween.chain().tween_callback(label.queue_free)
+func _spawn_reward_label(_position_value: Vector2, xp: int, gold: int) -> void:
+	# One accumulating loot toast replaces per-enemy labels. Rapid kills no longer pile
+	# reward text over monsters and their health bars.
+	if reward_toast == null or reward_toast_label == null:
+		return
+	reward_toast_xp += xp
+	reward_toast_gold += gold
+	reward_toast_label.text = "전리품   +%d XP  ·  +%d G" % [reward_toast_xp, reward_toast_gold]
+	if reward_toast_tween and reward_toast_tween.is_valid():
+		reward_toast_tween.kill()
+	var base_y := ground_y - 250.0
+	reward_toast.position.y = base_y + 12.0
+	reward_toast.modulate.a = 0.0
+	reward_toast.visible = true
+	reward_toast_tween = create_tween()
+	reward_toast_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	reward_toast_tween.tween_property(reward_toast, "position:y", base_y, 0.15)
+	reward_toast_tween.parallel().tween_property(reward_toast, "modulate:a", 1.0, 0.10)
+	reward_toast_tween.tween_interval(0.72)
+	reward_toast_tween.tween_property(reward_toast, "modulate:a", 0.0, 0.24)
+	reward_toast_tween.tween_callback(_clear_reward_toast)
+
+
+func _clear_reward_toast() -> void:
+	if reward_toast:
+		reward_toast.visible = false
+	reward_toast_xp = 0
+	reward_toast_gold = 0
 
 
 func _screen_pulse(color: Color, duration: float) -> void:
@@ -1546,8 +1669,8 @@ func _update_ambient(delta: float) -> void:
 		mote.position.y -= float(mote.get_meta("speed")) * delta
 		mote.position.x += sin(ambient_time * 0.8 + float(mote.get_meta("phase"))) * delta * 7.0
 		if mote.position.y < 310.0:
-			mote.position.y = 950.0
-			mote.position.x = randf_range(10.0, 710.0)
+			mote.position.y = ground_y + 108.0
+			mote.position.x = randf_range(10.0, layout_size.x - 10.0)
 	background_sprite.modulate = Color(1.0 + sin(ambient_time * 0.18) * 0.015,
 		1.0, 1.0 + cos(ambient_time * 0.13) * 0.018, 1.0)
 
@@ -1576,17 +1699,30 @@ func _update_ui() -> void:
 	for index in range(skill_buttons.size()):
 		var unlocked := _skill_unlocked(index)
 		skill_buttons[index].disabled = not unlocked
-		skill_buttons[index].modulate = Color.WHITE if unlocked else Color(0.42, 0.46, 0.56, 0.78)
+		skill_buttons[index].modulate = Color.WHITE if unlocked else Color(0.55, 0.59, 0.68, 0.86)
 		if not unlocked:
 			skill_state_labels[index].text = "LV.%d 개방" % SKILL_UNLOCK_LEVELS[index]
-			skill_cooldown_overlays[index].position.y = 0
-			skill_cooldown_overlays[index].size.y = 116
+			skill_state_labels[index].add_theme_color_override("font_color", Color(0.68, 0.72, 0.82))
+			skill_cooldown_overlays[index].position.y = 4.0
+			skill_cooldown_overlays[index].size.y = 58.0
+			skill_cooldown_labels[index].text = "잠금"
 		elif skill_timers[index] > 0.0:
 			var ratio := clampf(skill_timers[index] / SKILL_COOLDOWNS[index], 0.0, 1.0)
-			skill_cooldown_overlays[index].position.y = 116.0 * (1.0 - ratio)
-			skill_cooldown_overlays[index].size.y = 116.0 * ratio
+			skill_cooldown_overlays[index].position.y = 4.0 + 58.0 * (1.0 - ratio)
+			skill_cooldown_overlays[index].size.y = 58.0 * ratio
+			skill_cooldown_labels[index].text = "%.1f" % skill_timers[index]
+			skill_state_labels[index].text = "AUTO · 발동" if ratio > 0.93 else "재사용 %.1f초" % skill_timers[index]
+			skill_state_labels[index].add_theme_color_override("font_color",
+				Color(1.0, 0.81, 0.37) if ratio > 0.93 else Color(0.63, 0.75, 0.90))
 		else:
 			skill_cooldown_overlays[index].size.y = 0
+			skill_cooldown_labels[index].text = ""
+			if hero_blood < SKILL_BLOOD_COSTS[index]:
+				skill_state_labels[index].text = "혈기 부족"
+				skill_state_labels[index].add_theme_color_override("font_color", Color(1.0, 0.42, 0.52))
+			else:
+				skill_state_labels[index].text = "AUTO · 준비"
+				skill_state_labels[index].add_theme_color_override("font_color", Color(0.37, 0.90, 1.0))
 	_update_boss_ui()
 	_update_growth_ui()
 	_update_inventory_ui()

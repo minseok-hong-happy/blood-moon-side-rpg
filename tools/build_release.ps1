@@ -336,6 +336,12 @@ $dist = Join-Path $projectRoot 'dist'
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $destination = Join-Path $dist $apkFileName
 Copy-Item -LiteralPath $builtApk -Destination $destination -Force
+$runtimeFrame = Join-Path $stageRoot 'runtime-smoke\first-frame.png'
+if (-not (Test-Path -LiteralPath $runtimeFrame)) {
+    throw 'Android runtime gate passed without preserving its verified first frame.'
+}
+Copy-Item -LiteralPath $runtimeFrame `
+    -Destination (Join-Path $dist "QA-v$versionName-first-frame.png") -Force
 
 $mapping = Join-Path $stageRoot 'app\build\outputs\mapping\release\mapping.txt'
 if (Test-Path -LiteralPath $mapping) {
