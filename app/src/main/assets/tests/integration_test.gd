@@ -51,6 +51,54 @@ func _run_simulation() -> void:
 	var saved_blood: float = game.hero_blood
 	game.progress.level = 9
 	game.hero_blood = 999.0
+	far_enemy.set_health(100000, 100000)
+	for skill_index in range(game.skill_timers.size()):
+		game.skill_timers[skill_index] = 99.0
+	game.skill_timers[0] = 0.0
+	game.auto_skill_cursor = 0
+	game.auto_skill_cast_timer = 0.0
+	far_enemy.position.x = game.AUTO_SKILL_ENTRY_X + 24.0
+	game._update_ui()
+	if game.skill_state_labels[0].text == "AUTO · 준비" \
+			or game._auto_skill_state(0, far_enemy) != &"approach":
+		push_error("A skill outside auto range must say that it is chasing, never READY")
+		quit(1)
+		return
+	var casts_before_ready: int = game.automatic_skill_casts
+	game._update_auto_skills()
+	if game.automatic_skill_casts != casts_before_ready or game.skill_timers[0] > 0.0:
+		push_error("An off-screen target must not consume a queued automatic skill")
+		quit(1)
+		return
+	far_enemy.position.x = game.AUTO_SKILL_ENTRY_X - 1.0
+	game._update_ui()
+	if game.skill_state_labels[0].text != "AUTO · 준비" \
+			or game._auto_skill_state(0, far_enemy) != &"ready":
+		push_error("A castable automatic skill must expose the READY state")
+		quit(1)
+		return
+	game._update_auto_skills()
+	game._update_ui()
+	if game.automatic_skill_casts != casts_before_ready + 1 \
+			or absf(game.skill_timers[0] - game.SKILL_COOLDOWNS[0]) > 0.02 \
+			or game.skill_state_labels[0].text == "AUTO · 준비":
+		push_error("READY must transition to an automatic cast in the same combat decision")
+		quit(1)
+		return
+	for skill_index in range(game.skill_timers.size()):
+		game.skill_timers[skill_index] = 99.0
+	game.skill_timers[2] = 0.0
+	game.auto_skill_cursor = 2
+	game.auto_skill_cast_timer = 0.0
+	far_enemy.position.x = game.AUTO_SKILL_ENTRY_X - 1.0
+	far_enemy.set_health(100000, 100000)
+	var health_before_ranged_cast: int = far_enemy.hp
+	game._update_auto_skills()
+	if far_enemy.hp >= health_before_ranged_cast \
+			or absf(game.skill_timers[2] - game.SKILL_COOLDOWNS[2]) > 0.02:
+		push_error("A ranged automatic area skill must damage its visible target")
+		quit(1)
+		return
 	for skill_index in range(game.skill_timers.size()):
 		game.skill_timers[skill_index] = 0.0
 	game.auto_skill_cursor = 3
@@ -95,6 +143,11 @@ func _run_simulation() -> void:
 					first_index, second_index])
 				quit(1)
 				return
+	# Earlier combat assertions may legitimately defeat widened-range targets. Isolate this
+	# HUD accumulation contract from those rewards.
+	game.reward_toast_xp = 0
+	game.reward_toast_gold = 0
+	game.reward_toast_label.text = ""
 	game._spawn_reward_label(Vector2.ZERO, 7, 3)
 	game._spawn_reward_label(Vector2.ZERO, 11, 5)
 	if game.reward_toast_xp != 18 or game.reward_toast_gold != 8 \

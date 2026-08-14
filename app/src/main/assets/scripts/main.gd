@@ -43,6 +43,8 @@ const SKILL_ICON_RECT := Rect2(12.0, 10.0, 66.0, 66.0)
 const HERO_START_X := 132.0
 const COMBAT_LINE_X := 430.0
 const SKILL_ENGAGE_X := 520.0
+const AUTO_SKILL_ENTRY_X := 680.0
+const SKILL_SPLASH_MAX_X := 752.0
 const MAX_ACTIVE_ENEMIES := 9
 const SKILL_NAMES := ["혈창", "흡혈", "혈화", "혈보", "적우", "사슬", "혈주", "월식"]
 const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연쇄", "분출", "필살"]
@@ -180,18 +182,20 @@ func _process(delta: float) -> void:
 		save_timer = 0.0
 		_save_progress()
 	if game_paused:
+		_tick_ui(delta)
 		return
 	# Cooldowns are combat clocks, not range checks. Keep them moving while the hero runs
 	# toward a wave, waits for reinforcements, recovers from hit-stop, or revives.
 	_tick_skill_cooldowns(delta)
-	_tick_ui(delta)
 	if hero_down_timer > 0.0:
 		hero_down_timer -= delta
 		if hero_down_timer <= 0.0:
 			_revive_hero()
+		_tick_ui(delta)
 		return
 	if hit_stop > 0.0:
 		hit_stop -= delta
+		_tick_ui(delta)
 		return
 
 	_recover_hero(delta)
@@ -199,6 +203,9 @@ func _process(delta: float) -> void:
 	_update_enemies(delta)
 	_update_hero(delta)
 	_update_auto_skills()
+	# Derive the HUD after combat decisions so a cast cannot leave a stale READY label
+	# on screen until a later UI tick.
+	_tick_ui(delta)
 
 
 func _tick_skill_cooldowns(delta: float) -> void:
@@ -1060,18 +1067,39 @@ func _update_auto_skills() -> void:
 	if enemies.is_empty() or hero.dead or auto_skill_cast_timer > 0.0:
 		return
 	var nearest := _nearest_enemy()
-	if nearest == null or nearest.position.x > SKILL_ENGAGE_X:
+	if nearest == null:
 		return
 	# Start from the skill after the previous cast. This prevents the short-cooldown
 	# first slot from starving the rest when several arts become ready between waves.
 	for offset in range(skill_timers.size()):
 		var index := (auto_skill_cursor + offset) % skill_timers.size()
-		if skill_timers[index] <= 0.0 and _skill_unlocked(index) \
-				and hero_blood >= SKILL_BLOOD_COSTS[index]:
+		if _auto_skill_state(index, nearest) == &"ready":
 			_cast_skill(index)
 			automatic_skill_casts += 1
 			auto_skill_cursor = (index + 1) % skill_timers.size()
 			return
+
+
+func _auto_skill_state(index: int, target: CombatActor = null) -> StringName:
+	if index < 0 or index >= skill_timers.size() or not _skill_unlocked(index):
+		return &"locked"
+	if skill_timers[index] > 0.0:
+		return &"cooldown"
+	if hero_blood < SKILL_BLOOD_COSTS[index]:
+		return &"blood"
+	if game_paused:
+		return &"paused"
+	if hero == null or hero.dead:
+		return &"down"
+	if target == null or not is_instance_valid(target) or target.dead:
+		return &"target"
+	# Auto arts are allowed as soon as the leading monster visibly enters the battle view.
+	# The previous absolute 520 px gate left cards saying READY while the hero kept walking.
+	if target.position.x > AUTO_SKILL_ENTRY_X:
+		return &"approach"
+	if auto_skill_cast_timer > 0.0:
+		return &"chain"
+	return &"ready"
 
 
 func _manual_skill(index: int) -> void:
@@ -1113,12 +1141,12 @@ func _cast_skill(index: int) -> void:
 	match index:
 		0: _skill_blood_spear(target, base_damage)
 		1: _skill_siphon(target, base_damage)
-		2: _skill_nova(base_damage)
+		2: _skill_nova(target, base_damage)
 		3: _skill_vein_rush(base_damage)
-		4: _skill_scarlet_rain(base_damage)
+		4: _skill_scarlet_rain(target, base_damage)
 		5: _skill_chain(base_damage)
 		6: _skill_pillar(target, base_damage)
-		7: _skill_eclipse(base_damage)
+		7: _skill_eclipse(target, base_damage)
 
 
 func _show_skill_callout(index: int) -> void:
@@ -1179,10 +1207,11 @@ func _skill_siphon(target: CombatActor, damage: int) -> void:
 	_spawn_burst(hero.position + Vector2(0, -90), Color(0.19, 0.89, 1.0, 0.84), 18, 135.0)
 
 
-func _skill_nova(damage: int) -> void:
+func _skill_nova(target: CombatActor, damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_NOVA, -3.0, 0.95)
-	var center := Vector2(maxf(hero.position.x + 75.0, COMBAT_LINE_X), ground_y - 90.0)
+	var center_x := clampf(target.position.x, COMBAT_LINE_X, AUTO_SKILL_ENTRY_X)
+	var center := Vector2(center_x, ground_y - 90.0)
 	for pulse in range(3):
 		var effect := _effect_sprite(EFFECT_A, 2, center, 0.45 + pulse * 0.12,
 			Color(1.0, 0.22 + pulse * 0.10, 0.48, 0.88))
@@ -1191,9 +1220,8 @@ func _skill_nova(damage: int) -> void:
 		tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 		tween.tween_property(effect, "scale", Vector2.ONE * (1.45 + pulse * 0.18), 0.26)
 		tween.tween_property(effect, "rotation", effect.rotation + 1.2, 0.28)
-	for enemy in enemies.duplicate():
-		if is_instance_valid(enemy) and not enemy.dead and enemy.position.x <= SKILL_ENGAGE_X:
-			_apply_damage(enemy, damage, true, Color(1.0, 0.18, 0.44))
+	for enemy in _nearby_targets(center_x, 300.0, 8):
+		_apply_damage(enemy, damage, true, Color(1.0, 0.18, 0.44))
 	_spawn_radial_slashes(center, Color(1.0, 0.12, 0.42, 0.88), 10, 250.0)
 	_screen_pulse(Color(0.90, 0.04, 0.20, 0.24), 0.13)
 	shake_energy = maxf(shake_energy, 3.6)
@@ -1223,15 +1251,13 @@ func _skill_vein_rush(damage: int) -> void:
 	shake_energy = maxf(shake_energy, 2.4)
 
 
-func _skill_scarlet_rain(damage: int) -> void:
+func _skill_scarlet_rain(target: CombatActor, damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_SPEAR, -6.0, 0.78)
-	var targets: Array = []
-	for enemy in enemies:
-		if is_instance_valid(enemy) and not enemy.dead and enemy.position.x <= SKILL_ENGAGE_X:
-			targets.append(enemy)
+	var center_x := clampf(target.position.x, 455.0, 590.0)
+	var targets := _nearby_targets(target.position.x, 315.0, 8)
 	for drop in range(7):
-		var x := 365.0 + drop * 47.0 + randf_range(-16.0, 16.0)
+		var x := center_x - 138.0 + drop * 46.0 + randf_range(-16.0, 16.0)
 		var start := Vector2(x, 420.0 - randf_range(0, 90))
 		var finish := Vector2(x - 35.0, ground_y - 65.0)
 		var effect := _effect_sprite(EFFECT_B, 0, start, 0.42, Color(1.0, 0.42, 0.62, 0.94))
@@ -1284,10 +1310,10 @@ func _skill_pillar(target: CombatActor, damage: int) -> void:
 	shake_energy = maxf(shake_energy, 3.2)
 
 
-func _skill_eclipse(damage: int) -> void:
+func _skill_eclipse(target: CombatActor, damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_NOVA, -1.5, 0.72)
-	var center := Vector2(500.0, ground_y - 175.0)
+	var center := Vector2(clampf(target.position.x, 460.0, 610.0), ground_y - 175.0)
 	var eclipse := _effect_sprite(EFFECT_B, 3, center, 0.72, Color(0.90, 0.65, 1.0, 0.96))
 	eclipse.rotation = -0.35
 	var tween := create_tween().set_parallel(true)
@@ -1298,24 +1324,24 @@ func _skill_eclipse(damage: int) -> void:
 	_spawn_radial_slashes(center, Color(0.75, 0.28, 1.0, 0.93), 14, 320.0)
 	for pulse in range(3):
 		var timer := get_tree().create_timer(0.07 + pulse * 0.09)
-		timer.timeout.connect(_eclipse_hit.bind(damage, pulse))
+		timer.timeout.connect(_eclipse_hit.bind(center.x, damage, pulse))
 	shake_energy = maxf(shake_energy, 4.4)
 	hit_stop = 0.052
 
 
-func _eclipse_hit(damage: int, pulse: int) -> void:
-	for enemy in enemies.duplicate():
-		if is_instance_valid(enemy) and not enemy.dead and enemy.position.x <= SKILL_ENGAGE_X:
-			_apply_damage(enemy, int(damage * (0.46 if pulse < 2 else 0.72)), pulse == 2,
-				Color(0.83, 0.46, 1.0))
-	_spawn_impact(Vector2(500 + randf_range(-90, 90), ground_y - randf_range(55, 145)),
+func _eclipse_hit(center_x: float, damage: int, pulse: int) -> void:
+	for enemy in _nearby_targets(center_x, 360.0, 9):
+		_apply_damage(enemy, int(damage * (0.46 if pulse < 2 else 0.72)), pulse == 2,
+			Color(0.83, 0.46, 1.0))
+	_spawn_impact(Vector2(center_x + randf_range(-90, 90), ground_y - randf_range(55, 145)),
 		2, 1.0 + pulse * 0.13)
 
 
 func _front_targets(maximum: int) -> Array:
 	var result: Array = []
 	for enemy in enemies:
-		if is_instance_valid(enemy) and not enemy.dead and enemy.position.x <= SKILL_ENGAGE_X + 40.0:
+		if is_instance_valid(enemy) and not enemy.dead \
+				and enemy.position.x <= SKILL_SPLASH_MAX_X:
 			result.append(enemy)
 	result.sort_custom(func(first, second): return first.position.x < second.position.x)
 	return result.slice(0, mini(maximum, result.size()))
@@ -1325,7 +1351,7 @@ func _nearby_targets(center_x: float, radius: float, maximum: int) -> Array:
 	var result: Array = []
 	for enemy in enemies:
 		if is_instance_valid(enemy) and not enemy.dead \
-				and enemy.position.x <= SKILL_ENGAGE_X + 40.0 \
+				and enemy.position.x <= SKILL_SPLASH_MAX_X \
 				and absf(enemy.position.x - center_x) <= radius:
 			result.append(enemy)
 	result.sort_custom(func(first, second): return absf(first.position.x - center_x) < absf(second.position.x - center_x))
@@ -1719,6 +1745,7 @@ func _update_ui() -> void:
 	var cleared := wave_defeated
 	wave_fill.size.x = 660.0 * clampf(cleared / float(maxi(1, wave_total)), 0.0, 1.0)
 	wave_text.text = "WAVE %d  ·  %d / %d" % [int(progress.wave), cleared, wave_total]
+	var auto_target := _nearest_enemy()
 	for index in range(skill_buttons.size()):
 		var unlocked := _skill_unlocked(index)
 		skill_buttons[index].disabled = not unlocked
@@ -1740,12 +1767,29 @@ func _update_ui() -> void:
 		else:
 			skill_cooldown_overlays[index].size.y = 0
 			skill_cooldown_labels[index].text = ""
-			if hero_blood < SKILL_BLOOD_COSTS[index]:
-				skill_state_labels[index].text = "혈기 부족"
-				skill_state_labels[index].add_theme_color_override("font_color", Color(1.0, 0.42, 0.52))
-			else:
-				skill_state_labels[index].text = "AUTO · 준비"
-				skill_state_labels[index].add_theme_color_override("font_color", Color(0.37, 0.90, 1.0))
+			var auto_state := _auto_skill_state(index, auto_target)
+			match auto_state:
+				&"blood":
+					skill_state_labels[index].text = "혈기 부족"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(1.0, 0.42, 0.52))
+				&"approach":
+					skill_state_labels[index].text = "AUTO · 추격 중"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(0.62, 0.78, 0.94))
+				&"target":
+					skill_state_labels[index].text = "다음 적 대기"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(0.58, 0.68, 0.82))
+				&"chain":
+					skill_state_labels[index].text = "AUTO · 연계"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(1.0, 0.76, 0.32))
+				&"down":
+					skill_state_labels[index].text = "부활 대기"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(0.70, 0.62, 0.78))
+				&"paused":
+					skill_state_labels[index].text = "일시 정지"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(0.66, 0.70, 0.78))
+				_:
+					skill_state_labels[index].text = "AUTO · 준비"
+					skill_state_labels[index].add_theme_color_override("font_color", Color(0.37, 0.90, 1.0))
 	_update_boss_ui()
 	_update_growth_ui()
 	_update_inventory_ui()

@@ -27,6 +27,7 @@
 - 370~480ms 간격의 3연격과 짧은 히트스톱으로 구성한 빠른 공격 응답
 - 달리면서 이어지는 자동 3연격과 화면 흔들림을 줄인 속도선·잔상 연출
 - 직접 개입할 수 있는 8종 혈술의 고유 이미지 스킬 아이콘
+- 화면에 진입한 적을 즉시 포착하고 준비 표시와 같은 판정으로 발동하는 자동 혈술
 - 레벨 3·6·9·12·15에 해금되는 혈영쇄도·적월검우·혈사슬·진홍기둥·개기월식
 - 혈뢰, 검우, 피의 기둥, 월식 광륜과 다중 충격파를 겹친 전용 스킬 이펙트
 - AI로 제작한 8종 손그림 혈술 아틀라스와 이미지 기반 스킬 애니메이션
@@ -62,8 +63,8 @@
 
 ## APK 다운로드
 
-- [VAYLORN 5.1.2 Auto Skill Tuning](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.1.2-auto-skill-tuning/VAYLORN-v5.1.2-auto-skill-tuning.apk)
-- SHA-256: `923964EB863801CAC89ABFCC89342D9E06CADEDAD920450958A9D01032C88A4F`
+- [VAYLORN 5.1.3 Auto Cast Fix](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.1.3-auto-cast-fix/VAYLORN-v5.1.3-auto-cast-fix.apk)
+- SHA-256: `817CB48CA6A077906CAFFA8FDA5A82641D23943347FB4500804ED7678F037C2A`
 
 ## 빌드
 
