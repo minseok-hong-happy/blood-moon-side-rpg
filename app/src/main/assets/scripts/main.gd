@@ -47,8 +47,8 @@ const MAX_ACTIVE_ENEMIES := 9
 const SKILL_NAMES := ["혈창", "흡혈", "혈화", "혈보", "적우", "사슬", "혈주", "월식"]
 const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연쇄", "분출", "필살"]
 const SKILL_UNLOCK_LEVELS := [1, 1, 2, 3, 4, 5, 7, 9]
-const SKILL_COOLDOWNS := [2.0, 4.4, 5.8, 3.2, 6.4, 4.8, 7.2, 11.5]
-const SKILL_BLOOD_COSTS := [12, 16, 22, 14, 24, 19, 27, 38]
+const SKILL_COOLDOWNS := [1.1, 2.0, 2.6, 1.4, 2.9, 2.2, 3.3, 4.8]
+const SKILL_BLOOD_COSTS := [5, 7, 8, 6, 9, 7, 10, 13]
 const AUTO_SKILL_CAST_GAP := 0.16
 const STAT_KEYS := ["vitality_level", "might_level", "blood_level", "recovery_level"]
 const STAT_NAMES := ["생명", "공격", "혈기", "재생"]
@@ -152,7 +152,8 @@ func _ready() -> void:
 	var loaded := save_layer.load_progress()
 	progress = Rules.normalize_progress(loaded if not loaded.is_empty() else Rules.fresh_progress())
 	for index in range(SKILL_COOLDOWNS.size()):
-		skill_timers.append(0.18 + index * 0.42)
+		# Stagger the opening volley without making late slots wait several seconds.
+		skill_timers.append(0.08 + index * 0.14)
 	_build_scene()
 	_apply_progress_to_runtime(true)
 	_apply_offline_reward()

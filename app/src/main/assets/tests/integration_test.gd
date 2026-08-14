@@ -24,6 +24,11 @@ func _run_simulation() -> void:
 		push_error("Every skill card must own an isolated cooldown layer and countdown label")
 		quit(1)
 		return
+	if game.SKILL_COOLDOWNS.max() > 4.8 or game.SKILL_COOLDOWNS[0] > 1.1 \
+			or game.SKILL_BLOOD_COSTS.max() > 13:
+		push_error("Automatic skill cadence or blood economy regressed to the slow profile")
+		quit(1)
+		return
 	if absf(game.bottom_panel.position.y + game.bottom_panel.size.y - game.layout_size.y) > 0.1:
 		push_error("The battle HUD must meet the physical bottom edge on every portrait aspect")
 		quit(1)
@@ -103,7 +108,7 @@ func _run_simulation() -> void:
 		push_error("The main scene exited during the combat simulation")
 		quit(1)
 		return
-	if game.automatic_skill_casts < 5:
+	if game.automatic_skill_casts < 24:
 		push_error("Automatic combat must cast skills repeatedly; observed only %d casts" %
 			game.automatic_skill_casts)
 		quit(1)

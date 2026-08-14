@@ -19,8 +19,8 @@ android {
         applicationId "com.example.bloodmoonnightfall"
         minSdk 24
         targetSdk 35
-        versionCode 50101
-        versionName "5.1.1-skill-hotfix"
+        versionCode 50102
+        versionName "5.1.2-auto-skill-tuning"
 
         ndk {
             // Production stays ARM-only. CI builds one x86_64 APK so the exact Android startup

@@ -62,8 +62,8 @@
 
 ## APK 다운로드
 
-- [VAYLORN 5.1.1 Skill Hotfix](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.1.1-skill-hotfix/VAYLORN-v5.1.1-skill-hotfix.apk)
-- SHA-256: `755E1C82A7E5E4628E9027AE4158E9BA2B9E861B2BD01030A8C4EEFB27B5DE7E`
+- [VAYLORN 5.1.2 Auto Skill Tuning](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.1.2-auto-skill-tuning/VAYLORN-v5.1.2-auto-skill-tuning.apk)
+- SHA-256: `923964EB863801CAC89ABFCC89342D9E06CADEDAD920450958A9D01032C88A4F`
 
 ## 빌드
 
