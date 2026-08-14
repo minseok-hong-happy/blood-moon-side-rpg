@@ -21,7 +21,9 @@ const BACKGROUNDS := [
 const EFFECT_A = preload("res://art/vfx_blood_arts_anim_a_v2.png")
 const EFFECT_B = preload("res://art/vfx_blood_arts_anim_b_v2.png")
 const EFFECT_IMPACT = preload("res://art/vfx_combat_impact_anim_v1.png")
-const EFFECT_ICONS = preload("res://art/vfx_blood_arts_atlas_v1.png")
+const SKILL_ICONS = preload("res://art/skill_icons_atlas_v2.png")
+const EQUIPMENT_ICONS = preload("res://art/equipment_icons_atlas_v1.png")
+const BLOOD_SHARD_PARTICLE = preload("res://art/vfx_blood_shard_particle_v1.png")
 const UI_FONT = preload("res://fonts/NotoSansKR-VariableFont_wght.ttf")
 
 const BGM = preload("res://audio/bgm_blood_road.wav")
@@ -45,6 +47,7 @@ const COMBAT_LINE_X := 430.0
 const SKILL_ENGAGE_X := 520.0
 const AUTO_SKILL_ENTRY_X := 680.0
 const SKILL_SPLASH_MAX_X := 752.0
+const VFX_VIEW_PADDING := 18.0
 const MAX_ACTIVE_ENEMIES := 9
 const SKILL_NAMES := ["혈창", "흡혈", "혈화", "혈보", "적우", "사슬", "혈주", "월식"]
 const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연쇄", "분출", "필살"]
@@ -98,6 +101,7 @@ var shake_energy := 0.0
 var ambient_time := 0.0
 var ui_timer := 0.0
 var save_timer := 0.0
+var bgm_watchdog_timer := 0.0
 var trail_timer := 0.0
 var hunt_chain := 0
 var skill_timers: Array[float] = []
@@ -144,6 +148,13 @@ var growth_stat_labels: Array[Label] = []
 var growth_buttons: Array[Button] = []
 var inventory_equipment_label: Label
 var inventory_slot_labels: Array[Label] = []
+var inventory_slot_icons: Array[TextureRect] = []
+var inventory_slot_panels: Array[Panel] = []
+var inventory_equipped_labels: Array[Label] = []
+var inventory_equipped_icons: Array[TextureRect] = []
+var ui_font_medium: FontVariation
+var ui_font_bold: FontVariation
+var vfx_additive_material: CanvasItemMaterial
 var bgm_player: AudioStreamPlayer
 var sfx_pool: Array[AudioStreamPlayer] = []
 
@@ -177,6 +188,7 @@ func _process(delta: float) -> void:
 	ambient_time += delta
 	_update_ambient(delta)
 	_update_shake(delta)
+	_update_bgm_watchdog(delta)
 	save_timer += delta
 	if save_timer >= 5.0:
 		save_timer = 0.0
@@ -262,6 +274,8 @@ func _build_scene() -> void:
 	effect_layer.name = "Effects"
 	effect_layer.z_index = 20
 	world.add_child(effect_layer)
+	vfx_additive_material = CanvasItemMaterial.new()
+	vfx_additive_material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 
 	hero = ActorScene.new()
 	hero.configure(Atlases.hero_frames(HERO_TEXTURE), 0.53, -1, "카엘", true)
@@ -341,9 +355,11 @@ func _build_ui() -> void:
 	add_child(ui_layer)
 	ui_root = Control.new()
 	ui_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ui_font_medium = _font_variation(620.0)
+	ui_font_bold = _font_variation(760.0)
 	var theme := Theme.new()
-	theme.default_font = UI_FONT
-	theme.default_font_size = 16
+	theme.default_font = ui_font_medium
+	theme.default_font_size = 19
 	ui_root.theme = theme
 	ui_layer.add_child(ui_root)
 	var content_x := (layout_size.x - VIEW_SIZE.x) * 0.5
@@ -355,14 +371,14 @@ func _build_ui() -> void:
 		Color(0.012, 0.020, 0.058, 0.965), Color(0.72, 0.51, 0.25, 0.90), 22, 2))
 	ui_root.add_child(top_panel)
 
-	level_label = _label(top_panel, Vector2(20, 11), Vector2(112, 36), "LV.1", 27,
+	level_label = _label(top_panel, Vector2(20, 11), Vector2(112, 36), "LV.1", 29,
 		Color(0.96, 0.98, 1.0))
-	location_label = _label(top_panel, Vector2(128, 14), Vector2(350, 31), "", 17,
+	location_label = _label(top_panel, Vector2(128, 14), Vector2(350, 31), "", 20,
 		Color(0.82, 0.89, 0.98))
-	currency_label = _label(top_panel, Vector2(480, 16), Vector2(132, 30), "◆ 0", 18,
+	currency_label = _label(top_panel, Vector2(480, 16), Vector2(132, 30), "◆ 0", 20,
 		Color(1.0, 0.79, 0.29), HORIZONTAL_ALIGNMENT_RIGHT)
 
-	var pause_button := _button(top_panel, Vector2(620, 7), Vector2(48, 48), "Ⅱ", 18)
+	var pause_button := _button(top_panel, Vector2(620, 7), Vector2(48, 48), "Ⅱ", 20)
 	pause_button.pressed.connect(_toggle_pause)
 	var header_divider := ColorRect.new()
 	header_divider.position = Vector2(18, 54)
@@ -382,14 +398,14 @@ func _build_ui() -> void:
 		Color(0.48, 0.31, 0.88), "경험치")
 	xp_fill = xp_bar[0]
 	xp_text = xp_bar[1]
-	objective_label = _label(top_panel, Vector2(22, 151), Vector2(440, 29), "", 16,
+	objective_label = _label(top_panel, Vector2(22, 151), Vector2(440, 29), "", 18,
 		Color(0.94, 0.96, 1.0))
-	stats_label = _label(top_panel, Vector2(22, 184), Vector2(420, 27), "", 14,
+	stats_label = _label(top_panel, Vector2(22, 184), Vector2(420, 27), "", 17,
 		Color(0.72, 0.81, 0.94))
-	var inventory_button := _button(top_panel, Vector2(463, 162), Vector2(94, 47), "가방", 15)
+	var inventory_button := _button(top_panel, Vector2(463, 162), Vector2(94, 47), "가방", 16)
 	inventory_button.add_theme_color_override("font_color", Color(0.25, 0.87, 1.0))
 	inventory_button.pressed.connect(func(): _open_overlay(inventory_overlay))
-	var growth_button := _button(top_panel, Vector2(566, 162), Vector2(96, 47), "성장 ▲", 15)
+	var growth_button := _button(top_panel, Vector2(566, 162), Vector2(96, 47), "성장 ▲", 16)
 	growth_button.add_theme_color_override("font_color", Color(1.0, 0.76, 0.28))
 	growth_button.pressed.connect(func(): _open_overlay(growth_overlay))
 
@@ -399,9 +415,9 @@ func _build_ui() -> void:
 	story_panel.add_theme_stylebox_override("panel", _panel_style(
 		Color(0.018, 0.032, 0.085, 0.94), Color(0.35, 0.79, 0.98, 0.80), 15, 2))
 	ui_root.add_child(story_panel)
-	story_speaker = _label(story_panel, Vector2(18, 10), Vector2(130, 25), "", 15,
+	story_speaker = _label(story_panel, Vector2(18, 8), Vector2(150, 27), "", 18,
 		Color(0.35, 0.88, 1.0))
-	story_line = _label(story_panel, Vector2(18, 34), Vector2(628, 52), "", 15,
+	story_line = _label(story_panel, Vector2(18, 35), Vector2(628, 54), "", 18,
 		Color(0.91, 0.94, 0.99))
 	story_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -412,7 +428,7 @@ func _build_ui() -> void:
 		Color(0.08, 0.015, 0.035, 0.92), Color(0.98, 0.58, 0.20, 0.82), 13, 2))
 	boss_panel.visible = false
 	ui_root.add_child(boss_panel)
-	boss_title = _label(boss_panel, Vector2(16, 5), Vector2(568, 25), "", 16,
+	boss_title = _label(boss_panel, Vector2(16, 4), Vector2(568, 27), "", 18,
 		Color(1.0, 0.83, 0.48), HORIZONTAL_ALIGNMENT_CENTER)
 	var boss_bar := _bar(boss_panel, Vector2(17, 36), Vector2(566, 18),
 		Color(0.92, 0.08, 0.21), "")
@@ -434,7 +450,7 @@ func _build_ui() -> void:
 	reward_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	reward_toast.visible = false
 	ui_root.add_child(reward_toast)
-	reward_toast_label = _label(reward_toast, Vector2(10, 3), Vector2(280, 38), "", 16,
+	reward_toast_label = _label(reward_toast, Vector2(10, 3), Vector2(280, 38), "", 17,
 		Color(1.0, 0.82, 0.38), HORIZONTAL_ALIGNMENT_CENTER)
 
 	bottom_panel = Panel.new()
@@ -451,7 +467,7 @@ func _build_ui() -> void:
 		Color(0.025, 0.056, 0.105, 0.96), Color(0.24, 0.84, 1.0, 0.88), 13, 1))
 	bottom_panel.add_child(auto_strip)
 	auto_label = _label(auto_strip, Vector2(12, 2), Vector2(648, 35),
-		"●  AUTO HUNT   자동 추격 · 기본 공격 · 혈술 연계", 15,
+		"●  AUTO HUNT   자동 추격 · 기본 공격 · 혈술 연계", 17,
 		Color(0.35, 0.88, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
 	var wave_bar := _bar(bottom_panel, Vector2(bottom_content_x + 28, 57), Vector2(664, 24),
 		Color(0.84, 0.19, 0.42), "")
@@ -504,11 +520,12 @@ func _build_skill_grid(parent: Control, content_x: float = 0.0) -> void:
 		button.add_child(icon_shell)
 
 		var icon := TextureRect.new()
-		icon.texture = Atlases.frame(EFFECT_ICONS, 4, 2, column, row)
+		icon.texture = Atlases.frame(SKILL_ICONS, 4, 2, column, row)
 		icon.position = Vector2(4, 4)
 		icon.size = Vector2(58, 58)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon_shell.add_child(icon)
 
@@ -518,26 +535,24 @@ func _build_skill_grid(parent: Control, content_x: float = 0.0) -> void:
 		cooldown.color = Color(0.004, 0.008, 0.028, 0.80)
 		cooldown.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon_shell.add_child(cooldown)
-		var cooldown_label := _label(icon_shell, Vector2(4, 4), Vector2(58, 58), "", 18,
+		var cooldown_label := _label(icon_shell, Vector2(4, 4), Vector2(58, 58), "", 20,
 			Color(1.0, 0.94, 0.84), HORIZONTAL_ALIGNMENT_CENTER)
 
-		var title := _label(button, Vector2(86, 9), Vector2(68, 25), SKILL_NAMES[index], 16,
+		var title := _label(button, Vector2(84, 8), Vector2(72, 29), SKILL_NAMES[index], 20,
 			Color(0.97, 0.98, 1.0), HORIZONTAL_ALIGNMENT_LEFT)
 		title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var subtitle := _label(button, Vector2(86, 34), Vector2(68, 19),
-			SKILL_SUBTITLES[index], 12, _skill_color(index, 0.95), HORIZONTAL_ALIGNMENT_LEFT)
-		subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var cost := _label(button, Vector2(86, 55), Vector2(68, 19),
-			"혈기 %d" % SKILL_BLOOD_COSTS[index], 12, Color(0.63, 0.82, 0.94),
+		var skill_meta := _label(button, Vector2(84, 39), Vector2(72, 26),
+			"%s ·%d" % [SKILL_SUBTITLES[index], SKILL_BLOOD_COSTS[index]], 16,
+			_skill_color(index, 0.98),
 			HORIZONTAL_ALIGNMENT_LEFT)
-		cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		skill_meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var state_back := ColorRect.new()
-		state_back.position = Vector2(12, 83)
-		state_back.size = Vector2(140, 21)
+		state_back.position = Vector2(12, 80)
+		state_back.size = Vector2(140, 25)
 		state_back.color = Color(0.035, 0.075, 0.12, 0.90)
 		state_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.add_child(state_back)
-		var state := _label(button, Vector2(12, 83), Vector2(140, 21), "AUTO · 준비", 12,
+		var state := _label(button, Vector2(12, 79), Vector2(140, 27), "AUTO · 준비", 16,
 			Color(0.37, 0.90, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
 		state.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.set_meta("icon_rect", SKILL_ICON_RECT)
@@ -552,7 +567,7 @@ func _build_overlays() -> void:
 	growth_overlay = _overlay_shell("혈맥 성장")
 	var growth_panel: Panel = growth_overlay.get_meta("panel")
 	_label(growth_panel, Vector2(36, 78), Vector2(572, 52),
-		"전투 중에도 성장은 즉시 반영됩니다. 네 능력 중 원하는 혈맥을 강화하세요.", 15,
+		"전투 중에도 성장은 즉시 반영됩니다. 네 능력 중 원하는 혈맥을 강화하세요.", 17,
 		Color(0.70, 0.78, 0.90)).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	for index in range(STAT_KEYS.size()):
 		var y := 151.0 + index * 105.0
@@ -564,45 +579,83 @@ func _build_overlays() -> void:
 		growth_panel.add_child(row_panel)
 		_label(row_panel, Vector2(18, 12), Vector2(92, 28), STAT_NAMES[index], 20,
 			_skill_color(index + 1, 1.0))
-		var stat_label := _label(row_panel, Vector2(115, 11), Vector2(275, 58), "", 14,
+		var stat_label := _label(row_panel, Vector2(115, 11), Vector2(275, 58), "", 16,
 			Color(0.82, 0.87, 0.96))
 		stat_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		growth_stat_labels.append(stat_label)
-		var upgrade := _button(row_panel, Vector2(408, 14), Vector2(150, 58), "강화", 15)
+		var upgrade := _button(row_panel, Vector2(408, 14), Vector2(150, 58), "강화", 17)
 		upgrade.pressed.connect(_upgrade_stat.bind(index))
 		growth_buttons.append(upgrade)
 	_label(growth_panel, Vector2(36, 592), Vector2(572, 80),
 		"혈술은 영웅 레벨에 따라 자동 개방됩니다. 레벨 9부터 8개 혈술을 모두 자동 사용합니다.",
-		14, Color(0.60, 0.75, 0.88)).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		16, Color(0.68, 0.80, 0.94)).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	inventory_overlay = _overlay_shell("혈흔 가방")
 	var inventory_panel: Panel = inventory_overlay.get_meta("panel")
-	inventory_equipment_label = _label(inventory_panel, Vector2(36, 77), Vector2(572, 82),
-		"", 16, Color(0.92, 0.95, 1.0))
-	inventory_equipment_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_label(inventory_panel, Vector2(36, 169), Vector2(572, 28), "획득한 전리품", 18,
+	for slot in range(3):
+		var equipped_panel := Panel.new()
+		equipped_panel.position = Vector2(36 + slot * 190, 76)
+		equipped_panel.size = Vector2(174, 76)
+		equipped_panel.add_theme_stylebox_override("panel", _panel_style(
+			Color(0.025, 0.038, 0.088, 0.97), _skill_color(slot * 2, 0.70), 14, 1))
+		inventory_panel.add_child(equipped_panel)
+		var icon_shell := Panel.new()
+		icon_shell.position = Vector2(8, 8)
+		icon_shell.size = Vector2(60, 60)
+		icon_shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_shell.add_theme_stylebox_override("panel", _panel_style(
+			Color(0.006, 0.012, 0.038, 0.98), _skill_color(slot * 2, 0.88), 30, 2))
+		equipped_panel.add_child(icon_shell)
+		var icon := TextureRect.new()
+		icon.texture = Atlases.frame(EQUIPMENT_ICONS, 3, 1, slot, 0)
+		icon.position = Vector2(3, 3)
+		icon.size = Vector2(54, 54)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_shell.add_child(icon)
+		inventory_equipped_icons.append(icon)
+		var equipped_label := _label(equipped_panel, Vector2(74, 8), Vector2(92, 60),
+			"", 16, Color(0.92, 0.95, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
+		equipped_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		inventory_equipped_labels.append(equipped_label)
+	inventory_equipment_label = _label(inventory_panel, Vector2(36, 157), Vector2(572, 39),
+		"", 17, Color(0.92, 0.95, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
+	_label(inventory_panel, Vector2(36, 201), Vector2(572, 28), "획득한 전리품", 19,
 		Color(1.0, 0.77, 0.30))
 	for index in range(6):
 		var column := index % 2
 		var row := int(index / 2)
 		var slot_panel := Panel.new()
-		slot_panel.position = Vector2(36 + column * 290, 211 + row * 112)
-		slot_panel.size = Vector2(274, 92)
+		slot_panel.position = Vector2(36 + column * 290, 237 + row * 106)
+		slot_panel.size = Vector2(274, 88)
 		slot_panel.add_theme_stylebox_override("panel", _panel_style(
 			Color(0.025, 0.036, 0.082, 0.95), Color(0.25, 0.48, 0.64, 0.65), 13, 1))
 		inventory_panel.add_child(slot_panel)
-		var slot_label := _label(slot_panel, Vector2(12, 11), Vector2(250, 70), "", 14,
+		inventory_slot_panels.append(slot_panel)
+		var slot_icon := TextureRect.new()
+		slot_icon.texture = Atlases.frame(EQUIPMENT_ICONS, 3, 1, index % 3, 0)
+		slot_icon.position = Vector2(10, 10)
+		slot_icon.size = Vector2(68, 68)
+		slot_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		slot_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		slot_icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		slot_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot_panel.add_child(slot_icon)
+		inventory_slot_icons.append(slot_icon)
+		var slot_label := _label(slot_panel, Vector2(88, 8), Vector2(174, 72), "", 16,
 			Color(0.76, 0.82, 0.91))
 		slot_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		inventory_slot_labels.append(slot_label)
-	_label(inventory_panel, Vector2(36, 564), Vector2(572, 90),
+	_label(inventory_panel, Vector2(36, 566), Vector2(572, 82),
 		"더 강한 장비는 즉시 착용됩니다. 가방이 가득 차면 같은 부위의 가장 약한 전리품을 교체합니다.",
-		14, Color(0.55, 0.68, 0.82)).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		16, Color(0.65, 0.77, 0.91)).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	pause_overlay = _overlay_shell("일시 정지", 460)
 	var pause_panel: Panel = pause_overlay.get_meta("panel")
 	_label(pause_panel, Vector2(40, 112), Vector2(564, 70),
-		"밤의 행군이 멈췄습니다. 저장은 자동으로 유지됩니다.", 17,
+		"밤의 행군이 멈췄습니다. 저장은 자동으로 유지됩니다.", 19,
 		Color(0.83, 0.88, 0.96), HORIZONTAL_ALIGNMENT_CENTER).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var resume := _button(pause_panel, Vector2(132, 215), Vector2(380, 68), "전투 계속", 20)
 	resume.pressed.connect(_toggle_pause)
@@ -635,7 +688,7 @@ func _overlay_shell(title: String, panel_height: float = 760.0) -> Control:
 	panel.add_theme_stylebox_override("panel", _panel_style(
 		Color(0.018, 0.026, 0.068, 0.985), Color(0.53, 0.39, 0.71, 0.88), 24, 2))
 	overlay.add_child(panel)
-	_label(panel, Vector2(28, 20), Vector2(500, 45), title, 27,
+	_label(panel, Vector2(28, 20), Vector2(500, 45), title, 29,
 		Color(1.0, 0.83, 0.46))
 	var close_button := _button(panel, Vector2(560, 16), Vector2(58, 50), "×", 25)
 	close_button.pressed.connect(_close_overlay.bind(overlay))
@@ -651,11 +704,15 @@ func _label(parent: Node, position_value: Vector2, size_value: Vector2, text_val
 	result.text = text_value
 	result.horizontal_alignment = alignment
 	result.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if ui_font_medium:
+		result.add_theme_font_override("font", ui_font_bold if font_size >= 16 else ui_font_medium)
 	result.add_theme_font_size_override("font_size", font_size)
 	result.add_theme_color_override("font_color", color)
-	result.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.025, 0.82))
-	result.add_theme_constant_override("shadow_offset_x", 1)
-	result.add_theme_constant_override("shadow_offset_y", 1)
+	result.add_theme_color_override("font_outline_color", Color(0.0, 0.004, 0.025, 0.96))
+	result.add_theme_constant_override("outline_size", 2)
+	result.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.015, 0.94))
+	result.add_theme_constant_override("shadow_offset_x", 2)
+	result.add_theme_constant_override("shadow_offset_y", 2)
 	result.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(result)
 	return result
@@ -668,8 +725,12 @@ func _button(parent: Node, position_value: Vector2, size_value: Vector2,
 	result.size = size_value
 	result.text = text_value
 	result.focus_mode = Control.FOCUS_NONE
+	if ui_font_bold:
+		result.add_theme_font_override("font", ui_font_bold)
 	result.add_theme_font_size_override("font_size", font_size)
 	result.add_theme_color_override("font_color", Color(0.88, 0.92, 0.98))
+	result.add_theme_color_override("font_outline_color", Color(0.0, 0.004, 0.025, 0.96))
+	result.add_theme_constant_override("outline_size", 2)
 	result.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.02, 0.88))
 	result.add_theme_constant_override("shadow_offset_x", 1)
 	result.add_theme_constant_override("shadow_offset_y", 1)
@@ -698,7 +759,7 @@ func _bar(parent: Node, position_value: Vector2, size_value: Vector2,
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	back.add_child(fill)
 	var text_label := _label(back, Vector2.ZERO, size_value, prefix,
-		maxi(13, int(size_value.y * 0.64)),
+		maxi(17, int(size_value.y * 0.72)),
 		Color(0.96, 0.97, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
 	return [fill, text_label]
 
@@ -727,10 +788,18 @@ func _skill_color(index: int, alpha: float) -> Color:
 	return result
 
 
+func _font_variation(weight: float) -> FontVariation:
+	var result := FontVariation.new()
+	result.base_font = UI_FONT
+	result.variation_opentype = {&"wght": weight}
+	return result
+
+
 func _build_audio_pool() -> void:
 	bgm_player = AudioStreamPlayer.new()
 	bgm_player.stream = BGM
-	bgm_player.volume_db = -16.0
+	bgm_player.volume_db = -9.5
+	bgm_player.process_mode = Node.PROCESS_MODE_ALWAYS
 	bgm_player.finished.connect(func(): bgm_player.play())
 	add_child(bgm_player)
 	for index in range(14):
@@ -742,6 +811,15 @@ func _build_audio_pool() -> void:
 
 func _start_audio() -> void:
 	if bgm_player and not bgm_player.playing:
+		bgm_player.play()
+
+
+func _update_bgm_watchdog(delta: float) -> void:
+	bgm_watchdog_timer += delta
+	if bgm_watchdog_timer < 1.0:
+		return
+	bgm_watchdog_timer = 0.0
+	if bgm_player and bgm_player.stream and not bgm_player.playing:
 		bgm_player.play()
 
 
@@ -1168,33 +1246,39 @@ func _skill_blood_spear(target: CombatActor, damage: int) -> void:
 	_play_sfx(SFX_SPEAR, -4.5, 1.04)
 	var start := hero.position + Vector2(48, -105)
 	var finish := target.position + Vector2(8, -92)
-	var effect := _effect_sprite(EFFECT_A, 0, start, 0.55, Color(1.0, 0.76, 0.88))
-	effect.rotation = (finish - start).angle()
+	var visual_finish := _safe_effect_position(EFFECT_A, finish, 0.90, 4)
+	var effect := _effect_sprite(EFFECT_A, 0, start, 0.55,
+		Color(1.0, 0.76, 0.88), 0.90)
+	effect.rotation = (visual_finish - effect.position).angle()
 	var tween := create_tween().set_parallel(true)
 	tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	tween.tween_property(effect, "position", finish, 0.17)
-	tween.tween_property(effect, "scale", Vector2(1.15, 0.72), 0.17)
+	tween.tween_property(effect, "position", visual_finish, 0.17)
+	tween.tween_property(effect, "scale", Vector2(0.90, 0.58), 0.17)
 	_spawn_motion_echo(hero, Color(0.93, 0.08, 0.34, 0.32), 0.18)
 	var targets := _front_targets(3)
 	for index in range(targets.size()):
 		var enemy: CombatActor = targets[index]
 		_apply_damage(enemy, int(damage * (1.0 - index * 0.14)), index == 0,
 			Color(1.0, 0.22, 0.42))
-	_spawn_streak(start, finish, Color(1.0, 0.09, 0.34, 0.86), 13.0)
+	_spawn_streak(start, visual_finish, Color(1.0, 0.09, 0.34, 0.86), 13.0)
+	_spawn_skill_impact(visual_finish, Color(1.0, 0.08, 0.34, 0.96), 0.88)
 	shake_energy = maxf(shake_energy, 2.0)
 
 
 func _skill_siphon(target: CombatActor, damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_SIPHON, -5.0, 0.98)
-	var center := target.position + Vector2(0, -92)
+	var center := _safe_effect_position(EFFECT_A,
+		target.position + Vector2(0, -92), 0.70, 4)
+	var hero_center := _safe_effect_position(EFFECT_A,
+		hero.position + Vector2(20, -100), 0.70, 4)
 	for orbit in range(3):
 		var effect := _effect_sprite(EFFECT_A, 1, center, 0.42 + orbit * 0.13,
 			Color(0.45, 0.92, 1.0, 0.88))
 		effect.rotation = orbit * TAU / 3.0
 		var tween := create_tween().set_parallel(true)
 		tween.tween_property(effect, "rotation", effect.rotation + TAU * (1.0 if orbit % 2 == 0 else -1.0), 0.42)
-		tween.tween_property(effect, "position", hero.position + Vector2(20, -100), 0.40).set_delay(0.06 * orbit)
+		tween.tween_property(effect, "position", hero_center, 0.40).set_delay(0.06 * orbit)
 	var total_drained := 0
 	for enemy in _nearby_targets(target.position.x, 270.0, 5):
 		total_drained += mini(enemy.hp, int(damage * 0.72))
@@ -1205,16 +1289,18 @@ func _skill_siphon(target: CombatActor, damage: int) -> void:
 		_spawn_damage_label(hero.position + Vector2(0, -190), healed,
 			Color(0.32, 1.0, 0.75), false, true)
 	_spawn_burst(hero.position + Vector2(0, -90), Color(0.19, 0.89, 1.0, 0.84), 18, 135.0)
+	_spawn_skill_impact(center, Color(0.20, 0.90, 1.0, 0.92), 0.72)
 
 
 func _skill_nova(target: CombatActor, damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_NOVA, -3.0, 0.95)
 	var center_x := clampf(target.position.x, COMBAT_LINE_X, AUTO_SKILL_ENTRY_X)
-	var center := Vector2(center_x, ground_y - 90.0)
+	var center := _safe_effect_position(EFFECT_A,
+		Vector2(center_x, ground_y - 90.0), 1.81, 4)
 	for pulse in range(3):
 		var effect := _effect_sprite(EFFECT_A, 2, center, 0.45 + pulse * 0.12,
-			Color(1.0, 0.22 + pulse * 0.10, 0.48, 0.88))
+			Color(1.0, 0.22 + pulse * 0.10, 0.48, 0.88), 1.81)
 		effect.rotation = pulse * 0.72
 		var tween := create_tween().set_parallel(true)
 		tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
@@ -1223,6 +1309,7 @@ func _skill_nova(target: CombatActor, damage: int) -> void:
 	for enemy in _nearby_targets(center_x, 300.0, 8):
 		_apply_damage(enemy, damage, true, Color(1.0, 0.18, 0.44))
 	_spawn_radial_slashes(center, Color(1.0, 0.12, 0.42, 0.88), 10, 250.0)
+	_spawn_skill_impact(center, Color(1.0, 0.08, 0.38, 0.96), 1.35)
 	_screen_pulse(Color(0.90, 0.04, 0.20, 0.24), 0.13)
 	shake_energy = maxf(shake_energy, 3.6)
 	hit_stop = 0.042
@@ -1248,6 +1335,8 @@ func _skill_vein_rush(damage: int) -> void:
 		_spawn_streak(origin + Vector2(20, -110), enemy.position + Vector2(0, -95),
 			Color(0.20, 0.80, 1.0, 0.72), 8.0)
 	_spawn_burst(Vector2(target_x, ground_y - 78), Color(0.30, 0.87, 1.0, 0.88), 22, 185.0)
+	_spawn_skill_impact(Vector2(target_x, ground_y - 86),
+		Color(0.22, 0.84, 1.0, 0.94), 0.92)
 	shake_energy = maxf(shake_energy, 2.4)
 
 
@@ -1258,9 +1347,12 @@ func _skill_scarlet_rain(target: CombatActor, damage: int) -> void:
 	var targets := _nearby_targets(target.position.x, 315.0, 8)
 	for drop in range(7):
 		var x := center_x - 138.0 + drop * 46.0 + randf_range(-16.0, 16.0)
-		var start := Vector2(x, 420.0 - randf_range(0, 90))
-		var finish := Vector2(x - 35.0, ground_y - 65.0)
-		var effect := _effect_sprite(EFFECT_B, 0, start, 0.42, Color(1.0, 0.42, 0.62, 0.94))
+		var start := _safe_effect_position(EFFECT_B,
+			Vector2(x, 420.0 - randf_range(0, 90)), 0.48, 4)
+		var finish := _safe_effect_position(EFFECT_B,
+			Vector2(x - 35.0, ground_y - 65.0), 0.48, 4)
+		var effect := _effect_sprite(EFFECT_B, 0, start, 0.42,
+			Color(1.0, 0.42, 0.62, 0.94), 0.48)
 		effect.rotation = 1.78
 		var tween := create_tween().set_parallel(true)
 		tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
@@ -1269,7 +1361,10 @@ func _skill_scarlet_rain(target: CombatActor, damage: int) -> void:
 	for enemy in targets:
 		if is_instance_valid(enemy) and not enemy.dead:
 			_apply_damage(enemy, int(damage * 0.76), false, Color(1.0, 0.30, 0.51))
-	_spawn_radial_slashes(Vector2(520, ground_y - 75), Color(1.0, 0.10, 0.33, 0.74), 8, 190.0)
+	var rain_impact := _safe_effect_position(EFFECT_IMPACT,
+		Vector2(center_x, ground_y - 75), 0.92, 3)
+	_spawn_radial_slashes(rain_impact, Color(1.0, 0.10, 0.33, 0.74), 8, 190.0)
+	_spawn_skill_impact(rain_impact, Color(1.0, 0.12, 0.36, 0.96), 1.05)
 
 
 func _skill_chain(damage: int) -> void:
@@ -1277,16 +1372,23 @@ func _skill_chain(damage: int) -> void:
 	_play_sfx(SFX_SIPHON, -5.0, 1.16)
 	var targets := _front_targets(6)
 	var previous := hero.position + Vector2(30, -112)
+	var final_visual := previous
 	for index in range(targets.size()):
 		var enemy: CombatActor = targets[index]
-		var current := enemy.position + Vector2(0, -95)
+		var current := _safe_effect_position(EFFECT_B,
+			enemy.position + Vector2(0, -95), 0.62, 4)
 		_spawn_lightning(previous, current, _skill_color(5, 0.92))
 		var effect := _effect_sprite(EFFECT_B, 1, current, 0.34,
-			Color(0.38, 0.83, 1.0, 0.92))
+			Color(0.38, 0.83, 1.0, 0.92), 0.62)
 		effect.rotation = index * 0.8
+		var effect_tween := create_tween().set_parallel(true)
+		effect_tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		effect_tween.tween_property(effect, "scale", Vector2.ONE * 0.62, 0.17)
 		_apply_damage(enemy, int(damage * (1.0 - index * 0.06)), index == targets.size() - 1,
 			Color(0.36, 0.82, 1.0))
 		previous = current
+		final_visual = current
+	_spawn_skill_impact(final_visual, Color(0.28, 0.82, 1.0, 0.96), 0.82)
 	shake_energy = maxf(shake_energy, 2.2)
 
 
@@ -1296,16 +1398,20 @@ func _skill_pillar(target: CombatActor, damage: int) -> void:
 	var center := target.position + Vector2(0, -82)
 	for column in range(3):
 		var position_value := center + Vector2((column - 1) * 105.0, 150.0)
+		var visual_finish := _safe_effect_position(EFFECT_B,
+			center + Vector2((column - 1) * 105.0, -55.0), 0.78, 4)
 		var effect := _effect_sprite(EFFECT_B, 2, position_value, 0.54,
-			Color(1.0, 0.38, 0.20, 0.96))
+			Color(1.0, 0.38, 0.20, 0.96), 0.78)
 		effect.modulate.a = 0.0
 		var tween := create_tween().set_parallel(true)
 		tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
-		tween.tween_property(effect, "position:y", center.y - 55.0, 0.23).set_delay(column * 0.055)
+		tween.tween_property(effect, "position", visual_finish, 0.23).set_delay(column * 0.055)
+		tween.tween_property(effect, "scale", Vector2.ONE * 0.78, 0.23).set_delay(column * 0.055)
 		tween.tween_property(effect, "modulate:a", 1.0, 0.07).set_delay(column * 0.055)
 	for enemy in _nearby_targets(target.position.x, 330.0, 8):
 		_apply_damage(enemy, damage, true, Color(1.0, 0.46, 0.20))
 	_spawn_burst(center, Color(1.0, 0.32, 0.12, 0.92), 28, 220.0)
+	_spawn_skill_impact(center, Color(1.0, 0.30, 0.10, 0.98), 1.30)
 	_screen_pulse(Color(1.0, 0.18, 0.06, 0.19), 0.10)
 	shake_energy = maxf(shake_energy, 3.2)
 
@@ -1313,8 +1419,11 @@ func _skill_pillar(target: CombatActor, damage: int) -> void:
 func _skill_eclipse(target: CombatActor, damage: int) -> void:
 	hero.play_animation(&"cast", true)
 	_play_sfx(SFX_NOVA, -1.5, 0.72)
-	var center := Vector2(clampf(target.position.x, 460.0, 610.0), ground_y - 175.0)
-	var eclipse := _effect_sprite(EFFECT_B, 3, center, 0.72, Color(0.90, 0.65, 1.0, 0.96))
+	var logical_center_x := clampf(target.position.x, 460.0, 610.0)
+	var center := _safe_effect_position(EFFECT_B,
+		Vector2(logical_center_x, ground_y - 175.0), 1.75, 4)
+	var eclipse := _effect_sprite(EFFECT_B, 3, center, 0.72,
+		Color(0.90, 0.65, 1.0, 0.96), 1.75)
 	eclipse.rotation = -0.35
 	var tween := create_tween().set_parallel(true)
 	tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
@@ -1322,19 +1431,22 @@ func _skill_eclipse(target: CombatActor, damage: int) -> void:
 	tween.tween_property(eclipse, "rotation", 0.55, 0.42)
 	_screen_pulse(Color(0.16, 0.025, 0.30, 0.43), 0.24)
 	_spawn_radial_slashes(center, Color(0.75, 0.28, 1.0, 0.93), 14, 320.0)
+	_spawn_skill_impact(center, Color(0.76, 0.24, 1.0, 0.98), 1.55)
 	for pulse in range(3):
 		var timer := get_tree().create_timer(0.07 + pulse * 0.09)
-		timer.timeout.connect(_eclipse_hit.bind(center.x, damage, pulse))
+		timer.timeout.connect(_eclipse_hit.bind(logical_center_x, center, damage, pulse))
 	shake_energy = maxf(shake_energy, 4.4)
 	hit_stop = 0.052
 
 
-func _eclipse_hit(center_x: float, damage: int, pulse: int) -> void:
+func _eclipse_hit(center_x: float, visual_center: Vector2, damage: int, pulse: int) -> void:
 	for enemy in _nearby_targets(center_x, 360.0, 9):
 		_apply_damage(enemy, int(damage * (0.46 if pulse < 2 else 0.72)), pulse == 2,
 			Color(0.83, 0.46, 1.0))
-	_spawn_impact(Vector2(center_x + randf_range(-90, 90), ground_y - randf_range(55, 145)),
+	_spawn_impact(visual_center + Vector2(randf_range(-90, 90), randf_range(-30, 55)),
 		2, 1.0 + pulse * 0.13)
+	_spawn_burst(visual_center + Vector2(randf_range(-70, 70), randf_range(-24, 48)),
+		Color(0.72, 0.24, 1.0, 0.92), 12 + pulse * 5, 170.0 + pulse * 35.0)
 
 
 func _front_targets(maximum: int) -> Array:
@@ -1501,14 +1613,16 @@ func _boss_phase_shift(actor: CombatActor) -> void:
 
 
 func _effect_sprite(texture: Texture2D, row: int, position_value: Vector2,
-		scale_value: float, color: Color) -> AnimatedSprite2D:
+		scale_value: float, color: Color, safe_scale_value: float = 0.0) -> AnimatedSprite2D:
 	var effect := AnimatedSprite2D.new()
 	effect.sprite_frames = Atlases.effect_frames(texture, row, 4)
 	effect.animation = &"play"
-	effect.position = position_value
+	effect.position = _safe_effect_position(texture, position_value,
+		maxf(scale_value, safe_scale_value), 4)
 	effect.scale = Vector2.ONE * scale_value
 	effect.modulate = color
 	effect.z_index = 24
+	effect.material = vfx_additive_material
 	effect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	effect_layer.add_child(effect)
 	effect.animation_finished.connect(func():
@@ -1518,14 +1632,35 @@ func _effect_sprite(texture: Texture2D, row: int, position_value: Vector2,
 	return effect
 
 
+func _safe_effect_position(texture: Texture2D, desired: Vector2, max_scale: float,
+		rows: int = 4) -> Vector2:
+	if texture == null or max_scale <= 0.0:
+		return _clamp_vfx_point(desired, VFX_VIEW_PADDING)
+	var cell_size := Vector2(texture.get_width() / 4.0, texture.get_height() / float(rows))
+	var half_size := cell_size * max_scale * 0.5
+	half_size.x = minf(half_size.x, layout_size.x * 0.5 - VFX_VIEW_PADDING)
+	half_size.y = minf(half_size.y, layout_size.y * 0.5 - VFX_VIEW_PADDING)
+	return Vector2(
+		clampf(desired.x, VFX_VIEW_PADDING + half_size.x,
+			layout_size.x - VFX_VIEW_PADDING - half_size.x),
+		clampf(desired.y, VFX_VIEW_PADDING + half_size.y,
+			layout_size.y - VFX_VIEW_PADDING - half_size.y))
+
+
+func _clamp_vfx_point(point: Vector2, padding: float = 8.0) -> Vector2:
+	return Vector2(clampf(point.x, padding, layout_size.x - padding),
+		clampf(point.y, padding, layout_size.y - padding))
+
+
 func _spawn_impact(position_value: Vector2, row: int, scale_value: float) -> void:
 	var effect := AnimatedSprite2D.new()
 	effect.sprite_frames = Atlases.effect_frames(EFFECT_IMPACT, clampi(row, 0, 2), 3)
-	effect.position = position_value
+	effect.position = _safe_effect_position(EFFECT_IMPACT, position_value, scale_value, 3)
 	effect.scale = Vector2.ONE * scale_value
 	effect.rotation = randf_range(-0.32, 0.32)
 	effect.modulate = Color(1.0, 0.75, 0.82, 0.97)
 	effect.z_index = 30
+	effect.material = vfx_additive_material
 	effect_layer.add_child(effect)
 	effect.animation_finished.connect(func():
 		if is_instance_valid(effect):
@@ -1555,7 +1690,7 @@ func _spawn_motion_echo(actor: CombatActor, color: Color, duration: float) -> vo
 
 func _spawn_streak(start: Vector2, finish: Vector2, color: Color, width: float) -> void:
 	var streak := Line2D.new()
-	streak.points = PackedVector2Array([start, finish])
+	streak.points = PackedVector2Array([_clamp_vfx_point(start), _clamp_vfx_point(finish)])
 	streak.width = width
 	streak.default_color = color
 	streak.begin_cap_mode = Line2D.LINE_CAP_ROUND
@@ -1571,6 +1706,8 @@ func _spawn_streak(start: Vector2, finish: Vector2, color: Color, width: float) 
 func _spawn_lightning(start: Vector2, finish: Vector2, color: Color) -> void:
 	var line := Line2D.new()
 	var points := PackedVector2Array()
+	start = _clamp_vfx_point(start)
+	finish = _clamp_vfx_point(finish)
 	for index in range(8):
 		var ratio := index / 7.0
 		var point := start.lerp(finish, ratio)
@@ -1595,6 +1732,7 @@ func _spawn_lightning(start: Vector2, finish: Vector2, color: Color) -> void:
 
 
 func _spawn_radial_slashes(center: Vector2, color: Color, count: int, radius: float) -> void:
+	center = _clamp_vfx_point(center, VFX_VIEW_PADDING)
 	for index in range(count):
 		var angle := TAU * index / float(count) + randf_range(-0.08, 0.08)
 		var inner := center + Vector2.from_angle(angle) * randf_range(24.0, 58.0)
@@ -1605,18 +1743,27 @@ func _spawn_radial_slashes(center: Vector2, color: Color, count: int, radius: fl
 func _spawn_burst(position_value: Vector2, color: Color, amount_value: int,
 		velocity: float) -> void:
 	var particles := CPUParticles2D.new()
-	particles.position = position_value
+	particles.position = _clamp_vfx_point(position_value, 28.0)
+	particles.texture = BLOOD_SHARD_PARTICLE
+	particles.material = vfx_additive_material
 	particles.amount = amount_value
-	particles.lifetime = 0.46
+	particles.lifetime = 0.56
 	particles.one_shot = true
-	particles.explosiveness = 0.96
+	particles.explosiveness = 0.94
+	particles.randomness = 0.28
+	particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	particles.emission_sphere_radius = 16.0
 	particles.direction = Vector2(0, -1)
 	particles.spread = 165.0
 	particles.initial_velocity_min = velocity * 0.38
 	particles.initial_velocity_max = velocity
-	particles.gravity = Vector2(0, 240)
-	particles.scale_amount_min = 1.5
-	particles.scale_amount_max = 4.8
+	particles.gravity = Vector2(0, 310)
+	particles.damping_min = 55.0
+	particles.damping_max = 145.0
+	particles.angular_velocity_min = -640.0
+	particles.angular_velocity_max = 640.0
+	particles.scale_amount_min = 0.026
+	particles.scale_amount_max = 0.068
 	particles.color = color
 	particles.z_index = 31
 	effect_layer.add_child(particles)
@@ -1624,6 +1771,25 @@ func _spawn_burst(position_value: Vector2, color: Color, amount_value: int,
 		if is_instance_valid(particles):
 			particles.queue_free())
 	particles.emitting = true
+
+
+func _spawn_skill_impact(position_value: Vector2, color: Color,
+		intensity: float = 1.0) -> void:
+	var visual_position := _safe_effect_position(EFFECT_IMPACT, position_value,
+		0.62 + intensity * 0.28, 3)
+	_spawn_impact(visual_position, 2, 0.54 + intensity * 0.20)
+	_spawn_burst(visual_position, color, clampi(int(12.0 + intensity * 12.0), 14, 38),
+		130.0 + intensity * 92.0)
+	var bloom := _effect_sprite(EFFECT_A, 2, visual_position,
+		0.24 + intensity * 0.10, Color(color.r, color.g, color.b, 0.88),
+		0.58 + intensity * 0.18)
+	bloom.rotation = randf_range(-0.45, 0.45)
+	var tween := create_tween().set_parallel(true)
+	tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tween.tween_property(bloom, "scale", Vector2.ONE * (0.58 + intensity * 0.18), 0.20)
+	tween.tween_property(bloom, "modulate:a", 0.0, 0.25).set_delay(0.08)
+	_spawn_radial_slashes(visual_position, Color(color.r, color.g, color.b, 0.78),
+		clampi(int(5.0 + intensity * 3.0), 6, 12), 86.0 + intensity * 68.0)
 
 
 func _spawn_run_dust(position_value: Vector2, fast: bool) -> void:
@@ -1859,6 +2025,8 @@ func _open_overlay(overlay: Control) -> void:
 	_play_sfx(SFX_TAP, -14.0, 1.0)
 	_close_all_overlays()
 	overlay.visible = true
+	if overlay == inventory_overlay:
+		_update_inventory_ui()
 	overlay.modulate.a = 0.0
 	var panel: Panel = overlay.get_meta("panel")
 	panel.scale = Vector2(0.96, 0.96)
@@ -1941,23 +2109,42 @@ func _update_growth_ui() -> void:
 
 
 func _update_inventory_ui() -> void:
-	if inventory_equipment_label == null:
+	if inventory_equipment_label == null or inventory_overlay == null \
+			or not inventory_overlay.visible:
 		return
-	inventory_equipment_label.text = "착용 중   무기 +%d   ·   갑옷 +%d   ·   유물 +%d\n총 전투력  %s" % [
-		int(progress.weapon_power), int(progress.armor_power), int(progress.relic_power),
-		_compact_number(_attack_power() + _hero_max_health() / 4 + int(progress.armor_power) * 3)]
+	var equipped_powers := [int(progress.weapon_power), int(progress.armor_power),
+		int(progress.relic_power)]
+	for slot in range(mini(inventory_equipped_labels.size(), equipped_powers.size())):
+		inventory_equipped_labels[slot].text = "%s\n+%d" % [ITEM_SLOT_NAMES[slot], equipped_powers[slot]]
+		inventory_equipped_icons[slot].modulate = Color.WHITE
+	inventory_equipment_label.text = "총 전투력  %s" % _compact_number(
+		_attack_power() + _hero_max_health() / 4 + int(progress.armor_power) * 3)
 	var inventory: Array = progress.inventory
 	for index in range(inventory_slot_labels.size()):
 		var code := int(inventory[index]) if index < inventory.size() else 0
 		if code == 0:
-			inventory_slot_labels[index].text = "빈 혈흔 슬롯\n전투에서 전리품 획득"
-			inventory_slot_labels[index].add_theme_color_override("font_color", Color(0.46, 0.55, 0.69))
+			var preview_slot := index % 3
+			inventory_slot_icons[index].texture = Atlases.frame(
+				EQUIPMENT_ICONS, 3, 1, preview_slot, 0)
+			inventory_slot_icons[index].modulate = Color(0.48, 0.58, 0.72, 0.20)
+			inventory_slot_labels[index].text = "빈 슬롯\n전투에서 획득"
+			inventory_slot_labels[index].add_theme_color_override("font_color",
+				Color(0.52, 0.63, 0.78))
+			inventory_slot_panels[index].add_theme_stylebox_override("panel", _panel_style(
+				Color(0.025, 0.036, 0.082, 0.95), Color(0.25, 0.48, 0.64, 0.52), 13, 1))
 		else:
 			var item := _decode_item(code)
+			var item_slot: int = clampi(int(item.slot), 0, 2)
+			var rarity: int = clampi(int(item.rarity), 0, RARITY_COLORS.size() - 1)
+			inventory_slot_icons[index].texture = Atlases.frame(
+				EQUIPMENT_ICONS, 3, 1, item_slot, 0)
+			inventory_slot_icons[index].modulate = Color.WHITE
 			inventory_slot_labels[index].text = "%s %s\n전투력 +%d" % [
-				RARITY_NAMES[int(item.rarity)], ITEM_SLOT_NAMES[int(item.slot)], int(item.power)]
+				RARITY_NAMES[rarity], ITEM_SLOT_NAMES[item_slot], int(item.power)]
 			inventory_slot_labels[index].add_theme_color_override("font_color",
-				RARITY_COLORS[int(item.rarity)])
+				RARITY_COLORS[rarity])
+			inventory_slot_panels[index].add_theme_stylebox_override("panel", _panel_style(
+				Color(0.025, 0.036, 0.082, 0.97), RARITY_COLORS[rarity], 13, 2))
 
 
 func _apply_offline_reward() -> void:

@@ -11,6 +11,7 @@ param(
 	[string]$EntropySeederPath = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\android-entropy-seed-x86_64",
 	[string]$PortraitDisplaySize = "360x780",
 	[int]$BootTimeoutSeconds = 420,
+	[int]$InstallTimeoutSeconds = 1200,
     [int]$ReadyTimeoutSeconds = 600,
     [string]$ArtifactDirectory = ""
 )
@@ -48,6 +49,62 @@ function Invoke-Adb {
         throw "adb $($Arguments -join ' ') failed with exit $exitCode`n$($output -join [Environment]::NewLine)"
     }
     return $output
+}
+
+function Invoke-AdbWithTimeout {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutSeconds
+    )
+    $escapedArguments = @($Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + $_.Replace('"', '\"') + '"'
+        } else {
+            $_
+        }
+    })
+    $attemptId = [Guid]::NewGuid().ToString('N')
+    $stdoutPath = Join-Path $resolvedArtifacts "adb-$attemptId.stdout.txt"
+    $stderrPath = Join-Path $resolvedArtifacts "adb-$attemptId.stderr.txt"
+    try {
+        $process = Start-Process -FilePath $AdbPath -ArgumentList $escapedArguments `
+            -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $process.Kill()
+            $process.WaitForExit()
+            throw "adb $($Arguments -join ' ') exceeded the $TimeoutSeconds second timeout."
+        }
+		# Windows PowerShell may not populate ExitCode after the timed overload until the
+		# parameterless wait refreshes the underlying process handle.
+		$process.WaitForExit()
+		$process.Refresh()
+		$exitCode = $process.ExitCode
+        $stdout = @()
+        $stderr = @()
+        if (Test-Path -LiteralPath $stdoutPath) {
+            $stdout = @([IO.File]::ReadAllLines($stdoutPath))
+        }
+        if (Test-Path -LiteralPath $stderrPath) {
+            $stderr = @([IO.File]::ReadAllLines($stderrPath))
+        }
+		$combinedOutput = (@($stdout) + @($stderr)) -join [Environment]::NewLine
+		if ($null -eq $exitCode -and $combinedOutput -match '(?m)^Success\s*$') {
+			$exitCode = 0
+		}
+        if ($exitCode -ne 0) {
+			throw "adb $($Arguments -join ' ') failed with exit $exitCode`n$combinedOutput"
+        }
+        return @($stdout) + @($stderr)
+    } finally {
+        foreach ($temporaryPath in @($stdoutPath, $stderrPath)) {
+            if (Test-Path -LiteralPath $temporaryPath) {
+                Remove-Item -LiteralPath $temporaryPath -Force
+            }
+        }
+    }
 }
 
 function Get-OnlineSerials {
@@ -207,7 +264,10 @@ try {
 		'hide_error_dialogs', '1') -AllowFailure | Out-Null
 	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'settings', 'put', 'secure',
 		'immersive_mode_confirmations', 'confirmed') -AllowFailure | Out-Null
-	Invoke-Adb -Arguments @('-s', $serial, 'install', '-r', $resolvedApk) | Write-Host
+	# API 24 software emulators can leave adb's streaming installer waiting indefinitely on
+	# large Godot APKs. Push the package first, then install it with a hard upper bound.
+	Invoke-AdbWithTimeout -Arguments @('-s', $serial, 'install', '--no-streaming', '-r',
+		$resolvedApk) -TimeoutSeconds $InstallTimeoutSeconds | Write-Host
 	# A deterministic fresh profile prevents an old offline-reward modal from dimming the
 	# visual artifact and makes startup behavior independent of earlier QA runs.
 	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'pm', 'clear',

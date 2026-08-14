@@ -24,6 +24,59 @@ func _run_simulation() -> void:
 		push_error("Every skill card must own an isolated cooldown layer and countdown label")
 		quit(1)
 		return
+	if game.ui_font_medium == null or game.ui_font_bold == null \
+			or game.ui_root.theme.default_font_size < 19 \
+			or game.skill_state_labels[0].get_theme_font_size("font_size") < 16:
+		push_error("Portrait UI typography regressed below the mobile readability floor")
+		quit(1)
+		return
+	if game.inventory_equipped_icons.size() != 3 or game.inventory_equipped_labels.size() != 3 \
+			or game.inventory_slot_icons.size() != 6 or game.inventory_slot_panels.size() != 6:
+		push_error("Equipment and inventory icon coverage must remain complete")
+		quit(1)
+		return
+	for equipment_icon in game.inventory_equipped_icons:
+		if equipment_icon.texture == null:
+			push_error("Every equipped slot must have a generated equipment icon")
+			quit(1)
+			return
+	game.inventory_overlay.visible = true
+	game._update_inventory_ui()
+	if game.inventory_equipment_label.text.find("총 전투력") < 0 \
+			or game.inventory_slot_labels[0].text.is_empty():
+		push_error("Inventory icon view did not render its readable equipment summary")
+		quit(1)
+		return
+	game.inventory_overlay.visible = false
+	if game.bgm_player == null or game.bgm_player.stream == null \
+			or game.bgm_player.volume_db < -10.0 or not game.bgm_player.playing:
+		push_error("The original battle BGM must start audibly with the main scene")
+		quit(1)
+		return
+	game.bgm_player.stop()
+	game._update_bgm_watchdog(1.01)
+	if not game.bgm_player.playing:
+		push_error("The BGM watchdog must recover interrupted playback")
+		quit(1)
+		return
+	var safe_scale := 1.75
+	var safe_position: Vector2 = game._safe_effect_position(
+		game.EFFECT_B, Vector2(game.layout_size.x + 80.0, game.ground_y), safe_scale, 4)
+	var vfx_half_width: float = game.EFFECT_B.get_width() / 4.0 * safe_scale * 0.5
+	if safe_position.x + vfx_half_width > game.layout_size.x - game.VFX_VIEW_PADDING + 0.1:
+		push_error("Large skill art can escape the portrait viewport safe area")
+		quit(1)
+		return
+	var particle_count_before: int = game.effect_layer.get_child_count()
+	game._spawn_burst(Vector2(520.0, game.ground_y - 90.0),
+		Color(1.0, 0.12, 0.35, 1.0), 16, 180.0)
+	var particle_node = game.effect_layer.get_child(game.effect_layer.get_child_count() - 1)
+	if game.effect_layer.get_child_count() <= particle_count_before \
+			or not particle_node is CPUParticles2D or particle_node.texture == null \
+			or particle_node.gravity.y <= 0.0 or particle_node.angular_velocity_max <= 0.0:
+		push_error("Skill bursts must use textured, gravity-driven physical particles")
+		quit(1)
+		return
 	if game.SKILL_COOLDOWNS.max() > 4.8 or game.SKILL_COOLDOWNS[0] > 1.1 \
 			or game.SKILL_BLOOD_COSTS.max() > 13:
 		push_error("Automatic skill cadence or blood economy regressed to the slow profile")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import math
 import random
 import wave
@@ -10,7 +11,7 @@ from pathlib import Path
 
 SAMPLE_RATE = 22_050
 RNG = random.Random(0xB100D)
-OUTPUT = Path(__file__).resolve().parents[1] / "app" / "src" / "main" / "res" / "raw"
+OUTPUT = Path(__file__).resolve().parents[1] / "app" / "src" / "main" / "assets" / "audio"
 
 
 def midi(note: int) -> float:
@@ -89,9 +90,9 @@ def write_wav(name: str, samples: list[float], target: float = 0.88) -> None:
 
 
 def make_bgm() -> None:
-    bpm = 92.0
+    bpm = 104.0
     beat = 60.0 / bpm
-    bars = 16
+    bars = 20
     duration = bars * 4.0 * beat
     music = [0.0] * int(duration * SAMPLE_RATE)
     chords = [
@@ -99,47 +100,77 @@ def make_bgm() -> None:
         (34, (46, 50, 53)),  # B-flat major
         (41, (53, 57, 60)),  # F major
         (36, (48, 52, 55)),  # C major
+        (31, (43, 46, 50)),  # G minor
+        (34, (46, 50, 53)),  # B-flat major
+        (33, (45, 49, 52)),  # A major tension
+        (33, (45, 49, 52)),  # A major resolve pickup
     ]
-    melody = (74, 77, 76, 72, 74, 69, 72, 76, 77, 81, 79, 76, 74, 72, 69, 72)
+    melody = (74, 77, 81, 79, 77, 74, 72, 76, 77, 81,
+              84, 81, 79, 76, 73, 76, 77, 74, 69, 73)
+    arpeggio_pattern = (0, 1, 2, 1, 0, 2, 1, 2, 0, 1, 2, 1, 2, 1, 0, 1)
 
     for bar in range(bars):
         root, chord = chords[bar % len(chords)]
         bar_start = bar * beat * 4.0
+        intensity = 0.72 if bar < 2 else (0.88 if bar < 8 else 1.0)
+        # Wide gothic pad: the soft fifths preserve atmosphere beneath the faster rhythm.
         for note in chord:
             add_note(music, bar_start, beat * 3.92, midi(note), 0.034,
                      "triangle", 0.24, 0.42, vibrato=0.0018)
             add_note(music, bar_start, beat * 3.92, midi(note - 12), 0.017,
                      "sine", 0.32, 0.45)
-        for step in range(8):
-            note = chord[(step * 2 + bar) % 3] + 12
-            add_note(music, bar_start + step * beat * 0.5, beat * 0.42,
-                     midi(note), 0.052, "triangle", 0.008, 0.17)
-        for pulse in range(4):
-            add_note(music, bar_start + pulse * beat, beat * 0.7,
-                     midi(root), 0.092, "triangle", 0.006, 0.25)
-            if pulse in (0, 2):
-                add_kick(music, bar_start + pulse * beat, 0.21 if pulse == 0 else 0.16)
-            add_noise(music, bar_start + (pulse + 0.5) * beat, 0.09, 0.027, 24.0, 0.55)
-        if bar % 2 == 0:
-            add_note(music, bar_start + beat * 2.0, beat * 1.5,
-                     midi(melody[bar]), 0.075, "sine", 0.01, 0.55, vibrato=0.003)
-            add_note(music, bar_start + beat * 2.0, beat * 1.5,
-                     midi(melody[bar] + 12), 0.018, "sine", 0.005, 0.65)
 
-    # Blood-moon pulse and a quiet continuous floor keep the loop cohesive.
+        # Sixteenth-note blood-string ostinato carries the idle hunt forward.
+        for step, chord_index in enumerate(arpeggio_pattern):
+            note = chord[chord_index] + 12 + (12 if step in (7, 15) else 0)
+            add_note(music, bar_start + step * beat * 0.25, beat * 0.205,
+                     midi(note), 0.039 * intensity, "triangle", 0.004, 0.085)
+            if step % 4 == 3:
+                add_note(music, bar_start + step * beat * 0.25, beat * 0.18,
+                         midi(note + 12), 0.011 * intensity, "sine", 0.002, 0.07)
+
+        # Driving bass, kick, snare and filtered hats keep impact without masking SFX.
+        for pulse in range(4):
+            add_note(music, bar_start + pulse * beat, beat * 0.74,
+                     midi(root), 0.086 * intensity, "triangle", 0.006, 0.22)
+            add_note(music, bar_start + pulse * beat, beat * 0.48,
+                     midi(root - 12), 0.047 * intensity, "sine", 0.004, 0.20)
+            if pulse in (0, 2):
+                add_kick(music, bar_start + pulse * beat,
+                         (0.24 if pulse == 0 else 0.18) * intensity)
+            else:
+                add_noise(music, bar_start + pulse * beat, 0.19,
+                          0.055 * intensity, 18.0, 0.48)
+            add_noise(music, bar_start + (pulse + 0.5) * beat, 0.075,
+                      0.031 * intensity, 27.0, 0.62)
+
+        # A restrained anime-gothic lead answers every other bar.
+        if bar >= 2 and bar % 2 == 0:
+            lead = melody[bar]
+            add_note(music, bar_start + beat * 1.5, beat * 1.82,
+                     midi(lead), 0.069 * intensity, "sine", 0.014, 0.52,
+                     vibrato=0.0038)
+            add_note(music, bar_start + beat * 1.5, beat * 1.65,
+                     midi(lead - 12), 0.026 * intensity, "triangle", 0.018, 0.46)
+        if bar in (7, 15, 19):
+            for rise, note in enumerate((root + 12, root + 17, root + 21, root + 24)):
+                add_note(music, bar_start + beat * (3.0 + rise * 0.25), beat * 0.22,
+                         midi(note), 0.055, "saw", 0.003, 0.09)
+
+    # Blood-moon sub pulse and continuous floor glue the loop together.
     for beat_index in range(bars * 4):
         if beat_index % 8 == 0:
-            add_note(music, beat_index * beat, beat * 1.4, midi(26), 0.13,
+            add_note(music, beat_index * beat, beat * 1.4, midi(26), 0.125,
                      "sine", 0.005, 0.7, sweep=-12.0)
-    add_note(music, 0.0, duration, midi(26), 0.022, "sine", 0.45, 0.45)
+    add_note(music, 0.0, duration, midi(26), 0.018, "sine", 0.45, 0.45)
 
-    crossfade = int(0.24 * SAMPLE_RATE)
+    crossfade = int(0.30 * SAMPLE_RATE)
     first = music[:crossfade]
     for offset in range(crossfade):
         mix = offset / max(1, crossfade - 1)
         index = len(music) - crossfade + offset
         music[index] = music[index] * (1.0 - mix) + first[offset] * mix
-    write_wav("bgm_blood_road.wav", music, 0.72)
+    write_wav("bgm_blood_road.wav", music, 0.80)
 
 
 def make_hit(name: str, heavy: bool) -> None:
@@ -217,14 +248,20 @@ def make_ui_and_level() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--bgm-only", action="store_true",
+                        help="Regenerate only the looping battle soundtrack")
+    args = parser.parse_args()
+    RNG.seed(0xB100D)
     make_bgm()
-    make_hit("sfx_hit_light.wav", False)
-    make_hit("sfx_hit_heavy.wav", True)
-    make_dash()
-    make_spear()
-    make_siphon()
-    make_nova()
-    make_ui_and_level()
+    if not args.bgm_only:
+        make_hit("sfx_hit_light.wav", False)
+        make_hit("sfx_hit_heavy.wav", True)
+        make_dash()
+        make_spear()
+        make_siphon()
+        make_nova()
+        make_ui_and_level()
     for path in sorted(OUTPUT.glob("*.wav")):
         print(f"{path.name}: {path.stat().st_size} bytes")
 
