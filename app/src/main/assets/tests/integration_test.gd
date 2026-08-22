@@ -53,6 +53,28 @@ func _run_simulation() -> void:
 		push_error("The original battle BGM must start audibly with the main scene")
 		quit(1)
 		return
+	if game.MAX_ACTIVE_ENEMIES != 12 or game.INITIAL_NORMAL_SPAWN_COUNT != 8:
+		push_error("Monster density constants regressed below the mobile demo target")
+		quit(1)
+		return
+	game.progress.region = 0
+	game.progress.wave = 1
+	game._start_wave()
+	if game.enemies.size() < game.INITIAL_NORMAL_SPAWN_COUNT:
+		push_error("A normal wave must enter with a visible initial monster group")
+		quit(1)
+		return
+	var first_spawn: Node2D = game._nearest_enemy()
+	if first_spawn == null or first_spawn.position.x > 710.0:
+		push_error("New monsters must enter near the visible combat edge")
+		quit(1)
+		return
+	for refill_frame in range(8):
+		game._update_wave_flow(0.016)
+	if game.enemies.size() < game.MAX_ACTIVE_ENEMIES:
+		push_error("Empty combat slots must be refilled without waiting for six active enemies")
+		quit(1)
+		return
 	game.bgm_player.stop()
 	game._update_bgm_watchdog(1.01)
 	if not game.bgm_player.playing:
@@ -91,6 +113,9 @@ func _run_simulation() -> void:
 		push_error("Cooldown regression setup requires an active enemy")
 		quit(1)
 		return
+	for enemy in game.enemies:
+		if enemy != far_enemy:
+			enemy.position.x = 900.0
 	far_enemy.position.x = 700.0
 	game.skill_timers[0] = 2.0
 	game.ui_timer = 0.0

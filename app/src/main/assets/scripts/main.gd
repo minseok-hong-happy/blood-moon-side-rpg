@@ -48,7 +48,11 @@ const SKILL_ENGAGE_X := 520.0
 const AUTO_SKILL_ENTRY_X := 680.0
 const SKILL_SPLASH_MAX_X := 752.0
 const VFX_VIEW_PADDING := 18.0
-const MAX_ACTIVE_ENEMIES := 9
+const MAX_ACTIVE_ENEMIES := 12
+const MONSTER_SPAWN_BASE_X := 660.0
+const MONSTER_SPAWN_SPACING := 12.0
+const INITIAL_NORMAL_SPAWN_COUNT := 8
+const INITIAL_BOSS_SPAWN_COUNT := 6
 const SKILL_NAMES := ["혈창", "흡혈", "혈화", "혈보", "적우", "사슬", "혈주", "월식"]
 const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연쇄", "분출", "필살"]
 const SKILL_UNLOCK_LEVELS := [1, 1, 2, 3, 4, 5, 7, 9]
@@ -890,7 +894,8 @@ func _fill_reinforcements(initial: bool = false) -> void:
 	var count := Rules.reinforcement_batch_size(enemies.size(), wave_remaining,
 		MAX_ACTIVE_ENEMIES)
 	if initial:
-		count = mini(5 if int(progress.wave) < Rules.WAVES_PER_REGION else 4, wave_remaining)
+		count = mini(INITIAL_NORMAL_SPAWN_COUNT if int(progress.wave) < Rules.WAVES_PER_REGION \
+			else INITIAL_BOSS_SPAWN_COUNT, wave_remaining)
 	for index in range(count):
 		_spawn_enemy()
 
@@ -918,7 +923,8 @@ func _spawn_enemy() -> void:
 		actor_scale = 0.48 if elite else 0.41 + kind * 0.012
 		actor_name = "정예 · 피안개 추적자" if elite else ""
 	actor.configure(frames, actor_scale, kind, actor_name, false, boss, elite)
-	actor.position = Vector2(748.0 + randf_range(0.0, 65.0) + enemies.size() * 22.0,
+	actor.position = Vector2(MONSTER_SPAWN_BASE_X + randf_range(0.0, 38.0) \
+		+ enemies.size() * MONSTER_SPAWN_SPACING,
 		ground_y + randf_range(-12.0, 13.0))
 	actor.z_index = 7 + int(actor.position.y - ground_y) / 6
 	actor.set_facing_right(false)
@@ -951,7 +957,7 @@ func _update_wave_flow(delta: float) -> void:
 		if wave_transition_timer <= 0.0:
 			_advance_wave()
 		return
-	if enemies.size() < 6 and wave_remaining > 0:
+	if enemies.size() < MAX_ACTIVE_ENEMIES and wave_remaining > 0:
 		_fill_reinforcements()
 	if not story_midpoint_shown and wave_defeated >= maxi(4, int(wave_total * 0.5)):
 		story_midpoint_shown = true

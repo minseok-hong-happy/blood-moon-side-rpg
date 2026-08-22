@@ -19,8 +19,8 @@ android {
         applicationId "com.example.bloodmoonnightfall"
         minSdk 24
         targetSdk 35
-        versionCode 50200
-        versionName "5.2.0-visual-impact"
+        versionCode 50201
+        versionName "5.2.1-spawn-density"
 
         ndk {
             // Production stays ARM-only. CI builds one x86_64 APK so the exact Android startup

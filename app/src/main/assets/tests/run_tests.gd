@@ -47,7 +47,7 @@ func _test_progress_rules() -> void:
 func _test_combat_rules() -> void:
 	_expect(Rules.wave_enemy_count(0, 1) >= 30, "A normal wave must present a visible horde")
 	_expect(Rules.wave_enemy_count(2, 5) >= 20, "Boss waves must include an escort")
-	_expect(Rules.reinforcement_batch_size(0, 20, 9) >= 4,
+	_expect(Rules.reinforcement_batch_size(0, 20, 12) >= 4,
 		"An empty battlefield must receive a full reinforcement batch")
 	_expect(Rules.melee_damage(50, 2) > Rules.melee_damage(50, 0),
 		"Combo finisher must out-damage the opener")
