@@ -53,8 +53,13 @@ func _run_simulation() -> void:
 		push_error("The original battle BGM must start audibly with the main scene")
 		quit(1)
 		return
-	if game.MAX_ACTIVE_ENEMIES != 12 or game.INITIAL_NORMAL_SPAWN_COUNT != 8:
+	if game.MAX_ACTIVE_ENEMIES != 24 or game.INITIAL_NORMAL_SPAWN_COUNT != 16:
 		push_error("Monster density constants regressed below the mobile demo target")
+		quit(1)
+		return
+	if absf(game.HERO_FIRST_QUARTER_X - game.VIEW_SIZE.x / 4.0) > 0.1 \
+			or absf(game.HERO_START_X - game.HERO_FIRST_QUARTER_X) > 0.1:
+		push_error("The hero must remain in the first quarter of the portrait battle view")
 		quit(1)
 		return
 	game.progress.region = 0
@@ -65,7 +70,7 @@ func _run_simulation() -> void:
 		quit(1)
 		return
 	var first_spawn: Node2D = game._nearest_enemy()
-	if first_spawn == null or first_spawn.position.x > 710.0:
+	if first_spawn == null or first_spawn.position.x > 650.0:
 		push_error("New monsters must enter near the visible combat edge")
 		quit(1)
 		return
@@ -116,6 +121,7 @@ func _run_simulation() -> void:
 	for enemy in game.enemies:
 		if enemy != far_enemy:
 			enemy.position.x = 900.0
+	far_enemy.set_health(100000, 100000)
 	far_enemy.position.x = 700.0
 	game.skill_timers[0] = 2.0
 	game.ui_timer = 0.0

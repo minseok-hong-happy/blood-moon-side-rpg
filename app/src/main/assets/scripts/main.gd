@@ -42,17 +42,19 @@ const BASE_GROUND_Y := 842.0
 const BOTTOM_PANEL_HEIGHT := 354.0
 const SKILL_CARD_SIZE := Vector2(164.0, 112.0)
 const SKILL_ICON_RECT := Rect2(12.0, 10.0, 66.0, 66.0)
-const HERO_START_X := 132.0
-const COMBAT_LINE_X := 430.0
+const HERO_FIRST_QUARTER_X := 180.0
+const HERO_START_X := HERO_FIRST_QUARTER_X
+const COMBAT_LINE_X := 280.0
+const ENEMY_COMBAT_SPACING := 22.0
 const SKILL_ENGAGE_X := 520.0
 const AUTO_SKILL_ENTRY_X := 680.0
 const SKILL_SPLASH_MAX_X := 752.0
 const VFX_VIEW_PADDING := 18.0
-const MAX_ACTIVE_ENEMIES := 12
-const MONSTER_SPAWN_BASE_X := 660.0
-const MONSTER_SPAWN_SPACING := 12.0
-const INITIAL_NORMAL_SPAWN_COUNT := 8
-const INITIAL_BOSS_SPAWN_COUNT := 6
+const MAX_ACTIVE_ENEMIES := 24
+const MONSTER_SPAWN_BASE_X := 600.0
+const MONSTER_SPAWN_SPACING := 8.0
+const INITIAL_NORMAL_SPAWN_COUNT := 16
+const INITIAL_BOSS_SPAWN_COUNT := 12
 const SKILL_NAMES := ["혈창", "흡혈", "혈화", "혈보", "적우", "사슬", "혈주", "월식"]
 const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연쇄", "분출", "필살"]
 const SKILL_UNLOCK_LEVELS := [1, 1, 2, 3, 4, 5, 7, 9]
@@ -1003,7 +1005,7 @@ func _update_enemies(delta: float) -> void:
 		# current target and a nearby elite so crowded waves remain readable.
 		enemy.set_health_bar_visible(not is_boss and
 			(index == 0 or (bool(meta.get("elite", false)) and index <= 2)))
-		var spacing := 44.0 if is_boss else 31.0
+		var spacing := 36.0 if is_boss else ENEMY_COMBAT_SPACING
 		var desired_x := maxf(COMBAT_LINE_X + index * spacing,
 			hero.position.x + (116.0 if is_boss else 82.0) + index * 8.0)
 		if enemy.position.x > desired_x + 3.0:
@@ -1053,7 +1055,8 @@ func _update_hero(delta: float) -> void:
 	var target := _nearest_enemy()
 	if target == null:
 		return
-	var desired_x := minf(386.0, target.position.x - (110.0 if target.is_boss else 78.0))
+	var desired_x := minf(HERO_FIRST_QUARTER_X,
+		target.position.x - (110.0 if target.is_boss else 78.0))
 	var distance := desired_x - hero.position.x
 	if distance > 5.0:
 		var fast_dash := distance > 190.0
@@ -1330,7 +1333,7 @@ func _skill_vein_rush(damage: int) -> void:
 	tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 	tween.tween_property(hero, "position:x", target_x, 0.13)
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(hero, "position:x", minf(target_x, 380.0), 0.10)
+	tween.tween_property(hero, "position:x", minf(target_x, HERO_FIRST_QUARTER_X), 0.10)
 	for echo in range(5):
 		var timer := get_tree().create_timer(echo * 0.028)
 		timer.timeout.connect(func():

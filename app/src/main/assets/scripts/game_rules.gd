@@ -144,7 +144,7 @@ static func wave_enemy_count(region: int, wave: int) -> int:
 
 
 static func reinforcement_batch_size(active: int, remaining: int, maximum: int) -> int:
-	var desired := 4 if active <= 4 else 2 if active <= 7 else 1
+	var desired := 6 if active <= 6 else 4 if active <= 12 else 2
 	return mini(mini(desired, maxi(0, remaining)), maxi(0, maximum - maxi(0, active)))
 
 
@@ -219,4 +219,3 @@ static func offline_xp_reward(elapsed: int, level: int, region: int, wave: int) 
 	var per_minute := 3 + clampi(level, 1, LEVEL_CAP) / 2 \
 			+ clampi(region, 0, 2) * 3 + clampi(wave, 1, 5)
 	return mini(1_000_000, minutes * per_minute)
-
