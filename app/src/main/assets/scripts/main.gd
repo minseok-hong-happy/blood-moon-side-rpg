@@ -44,6 +44,7 @@ const SKILL_CARD_SIZE := Vector2(164.0, 112.0)
 const SKILL_ICON_RECT := Rect2(12.0, 10.0, 66.0, 66.0)
 const HERO_FIRST_QUARTER_X := 180.0
 const HERO_START_X := HERO_FIRST_QUARTER_X
+const HERO_VFX_Z_INDEX := 54
 const COMBAT_LINE_X := 280.0
 const ENEMY_COMBAT_SPACING := 22.0
 const SKILL_ENGAGE_X := 520.0
@@ -286,7 +287,9 @@ func _build_scene() -> void:
 	hero = ActorScene.new()
 	hero.configure(Atlases.hero_frames(HERO_TEXTURE), 0.53, -1, "카엘", true)
 	hero.position = Vector2(HERO_START_X, ground_y)
-	hero.z_index = 8
+	# Effects live on a z=20 layer and can reach child z=31. Keep the hero above
+	# every VFX layer so additive cast art never cuts across the head or silhouette.
+	hero.z_index = HERO_VFX_Z_INDEX
 	actor_layer.add_child(hero)
 
 	_build_ui()

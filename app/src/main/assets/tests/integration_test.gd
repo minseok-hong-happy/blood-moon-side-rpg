@@ -62,6 +62,10 @@ func _run_simulation() -> void:
 		push_error("The hero must remain in the first quarter of the portrait battle view")
 		quit(1)
 		return
+	if game.hero.z_index < game.effect_layer.z_index + 31:
+		push_error("Hero silhouette must render above every skill VFX child layer")
+		quit(1)
+		return
 	game.progress.region = 0
 	game.progress.wave = 1
 	game._start_wave()
