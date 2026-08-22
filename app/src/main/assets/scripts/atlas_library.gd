@@ -35,7 +35,11 @@ static func hero_frames(texture: Texture2D) -> SpriteFrames:
 		"attack_1": {"fps": 18.0, "loop": false, "cells": [Vector2i(0, 2), Vector2i(1, 2)]},
 		"attack_2": {"fps": 19.0, "loop": false, "cells": [Vector2i(1, 2), Vector2i(2, 2)]},
 		"attack_3": {"fps": 20.0, "loop": false, "cells": [Vector2i(2, 2), Vector2i(3, 2)]},
-		"cast": {"fps": 12.0, "loop": false, "cells": [Vector2i(0, 3), Vector2i(1, 3)]},
+		# The generated blood-art row touches the atlas top edge. Use the three
+		# action-row poses for casting so the hero's hair and effects retain a
+		# transparent safety margin instead of being cut by cell sampling.
+		"cast": {"fps": 16.0, "loop": false,
+			"cells": [Vector2i(0, 2), Vector2i(1, 2), Vector2i(2, 2)]},
 		"hurt": {"fps": 1.0, "loop": false, "cells": [Vector2i(2, 3)]},
 		"death": {"fps": 1.0, "loop": false, "cells": [Vector2i(3, 3)]},
 	})
@@ -67,4 +71,3 @@ static func effect_frames(texture: Texture2D, row: int, rows: int = 4) -> Sprite
 			Vector2i(0, row), Vector2i(1, row), Vector2i(2, row), Vector2i(3, row)
 		]},
 	})
-

@@ -63,6 +63,14 @@ func _test_atlas_contracts() -> void:
 	_expect(hero_frames.get_frame_count(&"run") == 4, "Run animation must use four distinct frames")
 	_expect(hero_frames.get_animation_speed(&"attack_1") >= 18.0,
 		"Attack response must remain faster than the original prototype")
+	_expect(hero_frames.get_frame_count(&"cast") == 3,
+		"Cast animation must use three complete, non-cropped action poses")
+	for cast_index in range(hero_frames.get_frame_count(&"cast")):
+		var cast_texture := hero_frames.get_frame_texture(&"cast", cast_index)
+		var cast_atlas := cast_texture as AtlasTexture
+		_expect(cast_atlas != null and cast_atlas.region.position.y < HERO_TEXTURE.get_height() * 0.75,
+			"Cast frame %d must come from the padded action row, not the clipped blood-art row" %
+			cast_index)
 	var effect_frames := Atlases.effect_frames(EFFECT_TEXTURE, 0, 4)
 	_expect(effect_frames.get_frame_count(&"play") == 4,
 		"Each blood art must animate through four image frames")

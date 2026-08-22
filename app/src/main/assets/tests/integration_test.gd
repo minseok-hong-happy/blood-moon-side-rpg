@@ -66,6 +66,10 @@ func _run_simulation() -> void:
 		push_error("Hero silhouette must render above every skill VFX child layer")
 		quit(1)
 		return
+	if game.hero.sprite.sprite_frames.get_frame_count(&"cast") != 3:
+		push_error("Skill casting must use the complete three-pose hero animation")
+		quit(1)
+		return
 	game.progress.region = 0
 	game.progress.wave = 1
 	game._start_wave()
