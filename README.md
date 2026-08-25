@@ -1,5 +1,7 @@
 # VAYLORN
 
+> **프로젝트 페이지:** [최신 APK 다운로드·패치노트·QA·기획 문서 보기](https://minseok-hong-happy.github.io/blood-moon-side-rpg/)
+
 스스로 전진하고 싸우는 뱀파이어 카엘에게 혈술과 성장으로 개입하는 세로형 방치 횡스크롤 RPG 콘셉트 데모입니다. Godot 4.7.1의 2D 애니메이션·파티클·오디오를 기존 Android 앱에 임베드했으며, 인터넷 연결 없이 플레이할 수 있습니다.
 
 ## 게임 구성
