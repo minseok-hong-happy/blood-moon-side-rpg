@@ -46,16 +46,19 @@ const HERO_FIRST_QUARTER_X := 180.0
 const HERO_START_X := HERO_FIRST_QUARTER_X
 const HERO_VFX_Z_INDEX := 54
 const COMBAT_LINE_X := 280.0
-const ENEMY_COMBAT_SPACING := 22.0
+const ENEMY_COMBAT_SPACING := 18.0
 const SKILL_ENGAGE_X := 520.0
 const AUTO_SKILL_ENTRY_X := 680.0
 const SKILL_SPLASH_MAX_X := 752.0
 const VFX_VIEW_PADDING := 18.0
-const MAX_ACTIVE_ENEMIES := 24
+const MAX_ACTIVE_ENEMIES := 48
 const MONSTER_SPAWN_BASE_X := 600.0
-const MONSTER_SPAWN_SPACING := 8.0
-const INITIAL_NORMAL_SPAWN_COUNT := 16
-const INITIAL_BOSS_SPAWN_COUNT := 12
+const MONSTER_SPAWN_SPACING := 5.0
+const INITIAL_NORMAL_SPAWN_COUNT := 32
+const INITIAL_BOSS_SPAWN_COUNT := 24
+const MONSTER_RUN_SPEED_BASE := 270.0
+const MONSTER_RUN_SPEED_KIND_BONUS := 26.0
+const BOSS_RUN_SPEED := 150.0
 const SKILL_NAMES := ["혈창", "흡혈", "혈화", "혈보", "적우", "사슬", "혈주", "월식"]
 const SKILL_SUBTITLES := ["관통", "회복", "폭발", "돌진", "낙하", "연쇄", "분출", "필살"]
 const SKILL_UNLOCK_LEVELS := [1, 1, 2, 3, 4, 5, 7, 9]
@@ -1012,10 +1015,10 @@ func _update_enemies(delta: float) -> void:
 		var desired_x := maxf(COMBAT_LINE_X + index * spacing,
 			hero.position.x + (116.0 if is_boss else 82.0) + index * 8.0)
 		if enemy.position.x > desired_x + 3.0:
-			var speed := 98.0 if is_boss else 142.0 + int(meta.kind) * 12.0
+			var speed := _enemy_approach_speed(meta)
 			enemy.position.x = move_toward(enemy.position.x, desired_x, speed * delta)
 			enemy.set_running(true)
-			enemy.animate_stride(delta, speed / 175.0)
+			enemy.animate_stride(delta, speed / MONSTER_RUN_SPEED_BASE)
 		else:
 			enemy.set_running(false)
 			enemy.animate_stride(delta, 0.0)
@@ -1028,6 +1031,13 @@ func _update_enemies(delta: float) -> void:
 			meta.phase = true
 			_boss_phase_shift(enemy)
 		enemy_meta[enemy] = meta
+
+
+func _enemy_approach_speed(meta: Dictionary) -> float:
+	if bool(meta.get("boss", false)):
+		return BOSS_RUN_SPEED
+	return MONSTER_RUN_SPEED_BASE + int(meta.get("kind", Rules.ENEMY_THRALL)) \
+			* MONSTER_RUN_SPEED_KIND_BONUS
 
 
 func _enemy_attack(enemy: CombatActor, meta: Dictionary) -> void:

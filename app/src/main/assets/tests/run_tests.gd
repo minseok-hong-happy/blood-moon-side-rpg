@@ -45,8 +45,12 @@ func _test_progress_rules() -> void:
 
 
 func _test_combat_rules() -> void:
-	_expect(Rules.wave_enemy_count(0, 1) >= 30, "A normal wave must present a visible horde")
-	_expect(Rules.wave_enemy_count(2, 5) >= 20, "Boss waves must include an escort")
+	_expect(Rules.wave_enemy_count(0, 1) == 64,
+		"The opening wave must hold the 2x monster density target")
+	_expect(Rules.wave_enemy_count(2, 4) == 120,
+		"Late normal waves must keep the 2x monster density target")
+	_expect(Rules.wave_enemy_count(2, 5) == 52,
+		"Boss waves must include the doubled escort group")
 	_expect(Rules.reinforcement_batch_size(0, 20, 24) >= 4,
 		"An empty battlefield must receive a full reinforcement batch")
 	_expect(Rules.melee_damage(50, 2) > Rules.melee_damage(50, 0),

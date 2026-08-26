@@ -139,8 +139,11 @@ static func mitigate_damage(raw_damage: int, armor_power: int) -> int:
 static func wave_enemy_count(region: int, wave: int) -> int:
 	var safe_region := clampi(region, 0, REGION_COUNT - 1)
 	var safe_wave := clampi(wave, 1, WAVES_PER_REGION)
-	return 18 + safe_region * 4 if safe_wave == WAVES_PER_REGION \
+	var base := 18 + safe_region * 4 if safe_wave == WAVES_PER_REGION \
 			else 26 + safe_wave * 6 + safe_region * 5
+	# The demo's density target is intentionally explicit: a wave must have enough
+	# bodies to keep the 48-slot battlefield full instead of merely queueing actors.
+	return base * 2
 
 
 static func reinforcement_batch_size(active: int, remaining: int, maximum: int) -> int:

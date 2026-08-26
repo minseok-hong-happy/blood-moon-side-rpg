@@ -53,8 +53,16 @@ func _run_simulation() -> void:
 		push_error("The original battle BGM must start audibly with the main scene")
 		quit(1)
 		return
-	if game.MAX_ACTIVE_ENEMIES != 24 or game.INITIAL_NORMAL_SPAWN_COUNT != 16:
-		push_error("Monster density constants regressed below the mobile demo target")
+	if game.MAX_ACTIVE_ENEMIES != 48 or game.INITIAL_NORMAL_SPAWN_COUNT != 32 \
+			or game.INITIAL_BOSS_SPAWN_COUNT != 24:
+		push_error("Monster density constants regressed below the 2x rush target")
+		quit(1)
+		return
+	if game.MONSTER_RUN_SPEED_BASE < 260.0 \
+			or game._enemy_approach_speed({"boss": false, "kind": 0}) < 260.0 \
+			or game._enemy_approach_speed({"boss": false, "kind": 2}) <= \
+				game._enemy_approach_speed({"boss": false, "kind": 0}):
+		push_error("Monsters must rush toward the combat line at the tuned fast speed")
 		quit(1)
 		return
 	if absf(game.HERO_FIRST_QUARTER_X - game.VIEW_SIZE.x / 4.0) > 0.1 \
