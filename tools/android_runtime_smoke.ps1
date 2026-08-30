@@ -10,6 +10,7 @@ param(
 	[string]$RequiredAbi = "x86_64",
 	[string]$EntropySeederPath = "$env:LOCALAPPDATA\BloodMoonNightfall\toolchain\android-entropy-seed-x86_64",
 	[string]$PortraitDisplaySize = "360x780",
+	[switch]$SkipInstall,
 	[int]$BootTimeoutSeconds = 420,
 	[int]$InstallTimeoutSeconds = 1200,
     [int]$ReadyTimeoutSeconds = 600,
@@ -143,10 +144,17 @@ function Write-Utf8Log {
 function Dismiss-SystemWaitDialog {
     param([Parameter(Mandatory = $true)][string]$Serial)
     $remoteHierarchy = '/data/local/tmp/vaylorn-window.xml'
-    Invoke-Adb -Arguments @('-s', $Serial, 'shell', 'uiautomator', 'dump',
-        $remoteHierarchy) -AllowFailure | Out-Null
-    $hierarchy = @(Invoke-Adb -Arguments @('-s', $Serial, 'shell', 'cat',
-        $remoteHierarchy) -AllowFailure) -join "`n"
+    # API 24 software emulators can occasionally leave uiautomator blocked while
+    # a full-screen Godot surface is compiling shaders. This dialog is optional;
+    # bound both calls so the visual smoke gate never waits indefinitely on it.
+    try {
+        Invoke-AdbWithTimeout -Arguments @('-s', $Serial, 'shell', 'uiautomator', 'dump',
+            $remoteHierarchy) -TimeoutSeconds 20 | Out-Null
+        $hierarchy = @(Invoke-AdbWithTimeout -Arguments @('-s', $Serial, 'shell', 'cat',
+            $remoteHierarchy) -TimeoutSeconds 20) -join "`n"
+    } catch {
+        return $false
+    }
     foreach ($nodeMatch in [Regex]::Matches($hierarchy, '<node[^>]+>')) {
         $node = $nodeMatch.Value
         if ($node -notmatch 'text="(?:Wait|GOT IT)"') {
@@ -204,8 +212,14 @@ try {
 
     $packageManagerReady = $false
     while (-not $packageManagerReady -and [DateTime]::UtcNow -lt $deadline) {
-        $pm = @(Invoke-Adb -Arguments @('-s', $serial, 'shell', 'pm', 'path', 'android') `
-            -AllowFailure)
+        try {
+            $pm = @(Invoke-AdbWithTimeout -Arguments @('-s', $serial, 'shell', 'pm',
+                'path', 'android') -TimeoutSeconds 20)
+        } catch {
+            # A booted API 24 software image can keep system_server busy for a
+            # while. Retry with a bound instead of blocking the release process.
+            $pm = @()
+        }
         $packageManagerReady = ($pm -join "`n") -match 'package:'
         if (-not $packageManagerReady) {
             Start-Sleep -Seconds 2
@@ -266,8 +280,12 @@ try {
 		'immersive_mode_confirmations', 'confirmed') -AllowFailure | Out-Null
 	# API 24 software emulators can leave adb's streaming installer waiting indefinitely on
 	# large Godot APKs. Push the package first, then install it with a hard upper bound.
-	Invoke-AdbWithTimeout -Arguments @('-s', $serial, 'install', '--no-streaming', '-r',
-		$resolvedApk) -TimeoutSeconds $InstallTimeoutSeconds | Write-Host
+	if ($SkipInstall) {
+		Write-Host "Install skipped; using the already verified package on $serial."
+	} else {
+		Invoke-AdbWithTimeout -Arguments @('-s', $serial, 'install', '--no-streaming', '-r',
+			$resolvedApk) -TimeoutSeconds $InstallTimeoutSeconds | Write-Host
+	}
 	# A deterministic fresh profile prevents an old offline-reward modal from dimming the
 	# visual artifact and makes startup behavior independent of earlier QA runs.
 	Invoke-Adb -Arguments @('-s', $serial, 'shell', 'pm', 'clear',

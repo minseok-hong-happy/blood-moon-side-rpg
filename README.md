@@ -35,6 +35,9 @@
 - 혈뢰, 검우, 피의 기둥, 월식 광륜과 다중 충격파를 겹친 전용 스킬 이펙트
 - 중력·회전·감속으로 흩어지는 손그림 혈정 파편과 화면 잘림을 막는 대형 혈술 안전영역
 - AI로 제작한 8종 손그림 혈술 아틀라스와 이미지 기반 스킬 애니메이션
+- Visual Overdrive 혈월 폭발·혈흔 참격 텍스처와 플래시→블룸→파편 2단계 시네마틱 타격
+- 평타·혈창·혈보 돌진·보스 등장/페이즈/처치·레벨업에 연결된 이동형 혈흔 잔상 연출
+- 대형 full-texture VFX의 자동 축소·안전 위치 보정과 동시 12개 상한으로 밀집 웨이브에서도 안정 유지
 - AI로 제작한 12셀 타격 애니메이션과 일반타격·강타·처치별 접촉 프레임
 - 피격 백색 실루엣, 피해 숫자 위계, 연속 HIT 카운터를 결합한 타격 판독
 - 자동 혈술명 컷인과 지역 보스 전용 등장 배너
@@ -70,8 +73,8 @@
 
 ## APK 다운로드
 
-- [VAYLORN 5.2.5 Monster Rush](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.2.5-monster-rush/VAYLORN-v5.2.5-monster-rush.apk)
-- SHA-256: `275FF5D510D99F451B6383E658E22BE589D06BC4D97CE37A2936369F7B52ECF3`
+- [VAYLORN 5.3.0 Visual Overdrive](https://github.com/minseok-hong-happy/blood-moon-side-rpg/releases/download/v5.3.0-visual-overdrive/VAYLORN-v5.3.0-visual-overdrive.apk)
+- SHA-256: `3D5FDFC1E48BCB4E25E4A6A70C2A182789DA7B5E03EC25AE67A655CA819F2C61`
 
 ## 빌드
 

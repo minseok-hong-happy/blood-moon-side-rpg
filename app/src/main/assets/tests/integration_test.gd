@@ -120,6 +120,32 @@ func _run_simulation() -> void:
 		push_error("Skill bursts must use textured, gravity-driven physical particles")
 		quit(1)
 		return
+	if game.EFFECT_BLOOD_MOON == null or game.EFFECT_RIFT_SLASH == null \
+			or game.EFFECT_BLOOD_MOON.get_width() < 900 \
+			or game.EFFECT_RIFT_SLASH.get_width() < 1200:
+		push_error("Visual-overdrive VFX assets must be present at their intended resolution")
+		quit(1)
+		return
+	var full_scale: float = game._full_texture_scale(game.EFFECT_BLOOD_MOON, 0.62)
+	var full_position: Vector2 = game._safe_full_texture_position(
+		game.EFFECT_BLOOD_MOON, Vector2(game.layout_size.x + 120.0, game.ground_y), full_scale)
+	var full_half_width: float = game.EFFECT_BLOOD_MOON.get_width() * full_scale * 0.5
+	if full_position.x + full_half_width > game.layout_size.x - game.VFX_VIEW_PADDING + 0.1:
+		push_error("Full-frame blood-moon burst must stay inside the portrait safe area")
+		quit(1)
+		return
+	var cinematic_before: int = game.effect_layer.get_child_count()
+	game._spawn_cinematic_burst(Vector2(520.0, game.ground_y - 90.0),
+		Color(1.0, 0.12, 0.38, 1.0), 1.2)
+	var cinematic_after: int = game.effect_layer.get_child_count()
+	var cinematic_found := 0
+	for visual_child in game.effect_layer.get_children():
+		if bool(visual_child.get_meta("cinematic_vfx", false)):
+			cinematic_found += 1
+	if cinematic_after <= cinematic_before or cinematic_found < 2:
+		push_error("Visual-overdrive skill hits must create layered cinematic VFX")
+		quit(1)
+		return
 	if game.SKILL_COOLDOWNS.max() > 4.8 or game.SKILL_COOLDOWNS[0] > 1.1 \
 			or game.SKILL_BLOOD_COSTS.max() > 13:
 		push_error("Automatic skill cadence or blood economy regressed to the slow profile")

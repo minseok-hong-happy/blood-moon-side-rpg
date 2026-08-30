@@ -21,6 +21,8 @@ const BACKGROUNDS := [
 const EFFECT_A = preload("res://art/vfx_blood_arts_anim_a_v2.png")
 const EFFECT_B = preload("res://art/vfx_blood_arts_anim_b_v2.png")
 const EFFECT_IMPACT = preload("res://art/vfx_combat_impact_anim_v1.png")
+const EFFECT_BLOOD_MOON = preload("res://art/vfx_blood_moon_burst_v2.png")
+const EFFECT_RIFT_SLASH = preload("res://art/vfx_blood_rift_slash_v2.png")
 const SKILL_ICONS = preload("res://art/skill_icons_atlas_v2.png")
 const EQUIPMENT_ICONS = preload("res://art/equipment_icons_atlas_v1.png")
 const BLOOD_SHARD_PARTICLE = preload("res://art/vfx_blood_shard_particle_v1.png")
@@ -45,12 +47,14 @@ const SKILL_ICON_RECT := Rect2(12.0, 10.0, 66.0, 66.0)
 const HERO_FIRST_QUARTER_X := 180.0
 const HERO_START_X := HERO_FIRST_QUARTER_X
 const HERO_VFX_Z_INDEX := 54
+const CINEMATIC_VFX_Z_INDEX := 36
 const COMBAT_LINE_X := 280.0
 const ENEMY_COMBAT_SPACING := 18.0
 const SKILL_ENGAGE_X := 520.0
 const AUTO_SKILL_ENTRY_X := 680.0
 const SKILL_SPLASH_MAX_X := 752.0
 const VFX_VIEW_PADDING := 18.0
+const CINEMATIC_VFX_MAX_ACTIVE := 12
 const MAX_ACTIVE_ENEMIES := 48
 const MONSTER_SPAWN_BASE_X := 600.0
 const MONSTER_SPAWN_SPACING := 5.0
@@ -85,6 +89,7 @@ var effect_layer: Node2D
 var background_sprite: Sprite2D
 var background_readability: ColorRect
 var horizon_glow: Polygon2D
+var blood_moon_ambient: Sprite2D
 var ambient_layer: Node2D
 var ui_root: Control
 var screen_flash: ColorRect
@@ -344,9 +349,23 @@ func _build_background() -> void:
 	horizon_glow.color = Color(0.48, 0.08, 0.19, 0.10)
 	layer.add_child(horizon_glow)
 
+	# A restrained blood-moon focal point gives the dark backdrops a readable
+	# silhouette anchor. The sprite uses the same transparent, hand-painted burst
+	# as the combat ultimate, but stays behind actors and is animated subtly so it
+	# never competes with the actual skill hit.
+	blood_moon_ambient = Sprite2D.new()
+	blood_moon_ambient.texture = EFFECT_BLOOD_MOON
+	blood_moon_ambient.position = Vector2(layout_size.x * 0.74,
+		maxf(320.0, ground_y - 485.0))
+	blood_moon_ambient.scale = Vector2.ONE * 0.205
+	blood_moon_ambient.modulate = Color(1.0, 0.14, 0.34, 0.12)
+	blood_moon_ambient.z_index = 1
+	blood_moon_ambient.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	layer.add_child(blood_moon_ambient)
+
 	ambient_layer = Node2D.new()
 	layer.add_child(ambient_layer)
-	for index in range(18):
+	for index in range(26):
 		var mote := Polygon2D.new()
 		var radius := randf_range(1.4, 3.4)
 		mote.polygon = PackedVector2Array([
@@ -1105,6 +1124,9 @@ func _hero_melee(target: CombatActor) -> void:
 	hero.play_animation(StringName("attack_%d" % (hero_combo + 1)), true)
 	hero.attack_lunge(1.0, 22.0 if hero_combo < 2 else 34.0)
 	_spawn_motion_echo(hero, Color(0.86, 0.10, 0.34, 0.26), 0.16)
+	_spawn_rift_slash_burst(target.position + Vector2(12, -94),
+		Color(1.0, 0.08, 0.30, 0.88), 0.72 if hero_combo < 2 else 1.05,
+		-0.36 + hero_combo * 0.13)
 	var damage := Rules.melee_damage(_attack_power(), hero_combo)
 	_apply_damage(target, damage, hero_combo == 2, Color(1.0, 0.34, 0.52))
 	hero_blood = minf(float(_hero_max_blood()), hero_blood + 7.0 + hero_combo * 2.0)
@@ -1283,6 +1305,8 @@ func _skill_blood_spear(target: CombatActor, damage: int) -> void:
 		_apply_damage(enemy, int(damage * (1.0 - index * 0.14)), index == 0,
 			Color(1.0, 0.22, 0.42))
 	_spawn_streak(start, visual_finish, Color(1.0, 0.09, 0.34, 0.86), 13.0)
+	_spawn_rift_slash_burst(visual_finish + Vector2(-18, 8),
+		Color(1.0, 0.12, 0.38, 0.90), 0.86, (visual_finish - start).angle() - 0.42)
 	_spawn_skill_impact(visual_finish, Color(1.0, 0.08, 0.34, 0.96), 0.88)
 	shake_energy = maxf(shake_energy, 2.0)
 
@@ -1357,6 +1381,8 @@ func _skill_vein_rush(damage: int) -> void:
 		_spawn_streak(origin + Vector2(20, -110), enemy.position + Vector2(0, -95),
 			Color(0.20, 0.80, 1.0, 0.72), 8.0)
 	_spawn_burst(Vector2(target_x, ground_y - 78), Color(0.30, 0.87, 1.0, 0.88), 22, 185.0)
+	_spawn_rift_slash_burst(Vector2(target_x + 18.0, ground_y - 110.0),
+		Color(0.26, 0.84, 1.0, 0.88), 1.12, -0.18)
 	_spawn_skill_impact(Vector2(target_x, ground_y - 86),
 		Color(0.22, 0.84, 1.0, 0.94), 0.92)
 	shake_energy = maxf(shake_energy, 2.4)
@@ -1541,6 +1567,8 @@ func _defeat_enemy(enemy: CombatActor) -> void:
 	if was_boss:
 		boss_panel.visible = false
 		_screen_pulse(Color(1.0, 0.20, 0.06, 0.28), 0.18)
+		_spawn_cinematic_burst(enemy.position + Vector2(0, -110),
+			Color(1.0, 0.20, 0.08, 0.98), 1.60, 0.0)
 		_show_banner("BOSS DEFEATED  ·  봉인이 무너집니다")
 	var timer := get_tree().create_timer(0.36 if was_boss else 0.28)
 	timer.timeout.connect(func():
@@ -1612,6 +1640,8 @@ func _decode_item(code: int) -> Dictionary:
 
 func _spawn_boss_arrival(actor: CombatActor) -> void:
 	_screen_pulse(Color(0.75, 0.05, 0.12, 0.36), 0.22)
+	_spawn_cinematic_burst(actor.position + Vector2(0, -145),
+		Color(1.0, 0.32, 0.10, 0.98), 1.65, 0.18)
 	_spawn_radial_slashes(actor.position + Vector2(0, -145),
 		Color(1.0, 0.42, 0.10, 0.88), 12, 270.0)
 	var effect := _effect_sprite(EFFECT_B, 3, actor.position + Vector2(0, -140), 1.08,
@@ -1625,6 +1655,8 @@ func _boss_phase_shift(actor: CombatActor) -> void:
 	actor.modulate = Color(1.08, 0.77, 0.82, 1.0)
 	_show_banner("PHASE Ⅱ  ·  %s의 진명" % Stories.BOSS_NAMES[int(progress.region)])
 	_screen_pulse(Color(0.82, 0.02, 0.21, 0.34), 0.21)
+	_spawn_cinematic_burst(actor.position + Vector2(0, -145),
+		Color(1.0, 0.10, 0.36, 0.98), 1.72, -0.24)
 	_spawn_radial_slashes(actor.position + Vector2(0, -145),
 		Color(1.0, 0.18, 0.40, 0.95), 16, 320.0)
 	_spawn_burst(actor.position + Vector2(0, -110), Color(1.0, 0.14, 0.32, 0.94), 34, 260.0)
@@ -1688,6 +1720,107 @@ func _spawn_impact(position_value: Vector2, row: int, scale_value: float) -> voi
 		if is_instance_valid(effect):
 			effect.queue_free())
 	effect.play(&"play")
+
+
+func _full_texture_scale(texture: Texture2D, requested: float,
+		padding: float = VFX_VIEW_PADDING) -> float:
+	if texture == null:
+		return requested
+	var fit_x := (layout_size.x - padding * 2.0) / float(texture.get_width())
+	var fit_y := (layout_size.y - padding * 2.0) / float(texture.get_height())
+	return minf(requested, maxf(0.04, minf(fit_x, fit_y)))
+
+
+func _safe_full_texture_position(texture: Texture2D, desired: Vector2,
+		max_scale: float, padding: float = VFX_VIEW_PADDING) -> Vector2:
+	if texture == null or max_scale <= 0.0:
+		return _clamp_vfx_point(desired, padding)
+	var scale_value := _full_texture_scale(texture, max_scale, padding)
+	var half_size := Vector2(texture.get_width(), texture.get_height()) * scale_value * 0.5
+	return Vector2(
+		clampf(desired.x, padding + half_size.x, layout_size.x - padding - half_size.x),
+		clampf(desired.y, padding + half_size.y, layout_size.y - padding - half_size.y))
+
+
+func _trim_cinematic_vfx() -> void:
+	if effect_layer == null:
+		return
+	var active: Array[Node] = []
+	for child in effect_layer.get_children():
+		if bool(child.get_meta("cinematic_vfx", false)):
+			active.append(child)
+	if active.size() < CINEMATIC_VFX_MAX_ACTIVE:
+		return
+	var remove_count := active.size() - CINEMATIC_VFX_MAX_ACTIVE + 1
+	for index in range(remove_count):
+		if is_instance_valid(active[index]):
+			active[index].queue_free()
+
+
+func _spawn_full_texture_vfx(texture: Texture2D, position_value: Vector2,
+		color: Color, start_scale: float, end_scale: float, duration: float,
+		rotation_value: float, z_value: int = CINEMATIC_VFX_Z_INDEX) -> Sprite2D:
+	if texture == null or effect_layer == null:
+		return null
+	_trim_cinematic_vfx()
+	var fitted_end := _full_texture_scale(texture, end_scale)
+	var fitted_start := minf(start_scale, fitted_end)
+	var effect := Sprite2D.new()
+	effect.texture = texture
+	effect.position = _safe_full_texture_position(texture, position_value, fitted_end)
+	effect.scale = Vector2.ONE * fitted_start
+	effect.rotation = rotation_value
+	effect.modulate = Color(color.r, color.g, color.b, 0.0)
+	effect.z_index = z_value
+	effect.material = vfx_additive_material
+	effect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	effect.set_meta("cinematic_vfx", true)
+	effect_layer.add_child(effect)
+	var tween := create_tween().set_parallel(true)
+	tween.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tween.tween_property(effect, "scale", Vector2.ONE * fitted_end, duration * 0.36)
+	tween.tween_property(effect, "modulate:a", clampf(color.a, 0.0, 1.0), duration * 0.12)
+	tween.tween_property(effect, "rotation", rotation_value + randf_range(-0.24, 0.24),
+		duration * 0.82)
+	tween.chain().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_property(effect, "modulate:a", 0.0, duration * 0.52)
+	tween.chain().tween_callback(effect.queue_free)
+	return effect
+
+
+func _spawn_cinematic_burst(position_value: Vector2, color: Color,
+		intensity: float = 1.0, rotation_value: float = 0.0) -> void:
+	var normalized := clampf(intensity, 0.45, 1.75)
+	var end_scale := clampf(0.34 + normalized * 0.13, 0.34, 0.62)
+	var visual_position := _safe_full_texture_position(EFFECT_BLOOD_MOON,
+		position_value, end_scale)
+	_spawn_full_texture_vfx(EFFECT_BLOOD_MOON, visual_position,
+		Color(color.r, color.g, color.b, minf(1.0, 0.84 + normalized * 0.10)),
+		end_scale * 0.10, end_scale, 0.46, rotation_value, CINEMATIC_VFX_Z_INDEX)
+	# A delayed, smaller echo creates a readable two-stage hit (flash → bloom)
+	# without adding another persistent particle emitter to crowded waves.
+	if normalized >= 0.90:
+		_spawn_full_texture_vfx(EFFECT_BLOOD_MOON, visual_position,
+			Color(0.78, 0.28, 1.0, 0.30), end_scale * 0.07, end_scale * 0.68,
+			0.58, rotation_value + 0.55, CINEMATIC_VFX_Z_INDEX - 1)
+
+
+func _spawn_rift_slash_burst(position_value: Vector2, color: Color,
+		intensity: float = 1.0, rotation_value: float = -0.30) -> void:
+	var normalized := clampf(intensity, 0.35, 1.45)
+	var end_scale := clampf(0.20 + normalized * 0.075, 0.20, 0.40)
+	var visual_position := _safe_full_texture_position(EFFECT_RIFT_SLASH,
+		position_value, end_scale)
+	var slash := _spawn_full_texture_vfx(EFFECT_RIFT_SLASH, visual_position,
+		Color(color.r, color.g, color.b, minf(1.0, 0.78 + normalized * 0.12)),
+		end_scale * 0.07, end_scale, 0.34, rotation_value, CINEMATIC_VFX_Z_INDEX + 1)
+	if slash:
+		var start_position := _safe_full_texture_position(EFFECT_RIFT_SLASH,
+			visual_position + Vector2(-76.0, 26.0), end_scale)
+		slash.position = start_position
+		var travel := create_tween()
+		travel.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		travel.tween_property(slash, "position", visual_position, 0.16)
 
 
 func _spawn_motion_echo(actor: CombatActor, color: Color, duration: float) -> void:
@@ -1800,6 +1933,8 @@ func _spawn_skill_impact(position_value: Vector2, color: Color,
 	var visual_position := _safe_effect_position(EFFECT_IMPACT, position_value,
 		0.62 + intensity * 0.28, 3)
 	_spawn_impact(visual_position, 2, 0.54 + intensity * 0.20)
+	_spawn_cinematic_burst(visual_position, color, intensity,
+		randf_range(-0.30, 0.30))
 	_spawn_burst(visual_position, color, clampi(int(12.0 + intensity * 12.0), 14, 38),
 		130.0 + intensity * 92.0)
 	var bloom := _effect_sprite(EFFECT_A, 2, visual_position,
@@ -1821,6 +1956,8 @@ func _spawn_run_dust(position_value: Vector2, fast: bool) -> void:
 
 
 func _spawn_level_aura() -> void:
+	_spawn_cinematic_burst(hero.position + Vector2(0, -110),
+		Color(1.0, 0.52, 0.18, 0.88), 1.15, 0.0)
 	for ring in range(3):
 		var effect := _effect_sprite(EFFECT_B, 3, hero.position + Vector2(0, -95),
 			0.35 + ring * 0.18, Color(1.0, 0.69, 0.24, 0.88))
@@ -1910,6 +2047,10 @@ func _update_ambient(delta: float) -> void:
 			mote.position.x = randf_range(10.0, layout_size.x - 10.0)
 	background_sprite.modulate = Color(1.0 + sin(ambient_time * 0.18) * 0.015,
 		1.0, 1.0 + cos(ambient_time * 0.13) * 0.018, 1.0)
+	if blood_moon_ambient:
+		var moon_pulse := 1.0 + sin(ambient_time * 1.35) * 0.018
+		blood_moon_ambient.scale = Vector2.ONE * (0.205 * moon_pulse)
+		blood_moon_ambient.modulate.a = 0.095 + sin(ambient_time * 0.85) * 0.018
 
 
 func _update_ui() -> void:
