@@ -5,8 +5,12 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.LinearGradient;
+import android.graphics.LightingColorFilter;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -22,15 +26,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
-/** Portrait, obstacle-free 2D vampire growth action RPG. */
+/** Portrait idle side-scrolling vampire RPG concept demo. */
 public final class GameView extends View {
     private static final float LOGICAL_WIDTH = 720f;
     private static final float LOGICAL_HEIGHT = 1280f;
     private static final float GROUND_Y = 866f;
     private static final float CONTROL_TOP = 936f;
     private static final float FIXED_STEP = 1f / 60f;
-    private static final int MAX_ACTIVE_ENEMIES = 3;
-    private static final int MAX_PARTICLES = 260;
+    private static final int MAX_ACTIVE_ENEMIES = 12;
+    private static final int MAX_PARTICLES = 420;
+    private static final int MAX_IMPACT_EFFECTS = 24;
 
     private static final int CRIMSON = Color.rgb(214, 31, 70);
     private static final int BLOOD = Color.rgb(142, 13, 44);
@@ -39,11 +44,47 @@ public final class GameView extends View {
     private static final int VIOLET = Color.rgb(159, 112, 232);
     private static final int NIGHT = Color.rgb(7, 9, 18);
 
+    private static final ColorMatrixColorFilter BACKGROUND_LIFT_FILTER =
+            new ColorMatrixColorFilter(new ColorMatrix(new float[]{
+                    1.18f, 0f, 0f, 0f, 14f,
+                    0f, 1.18f, 0f, 0f, 14f,
+                    0f, 0f, 1.16f, 0f, 16f,
+                    0f, 0f, 0f, 1f, 0f
+            }));
+    private static final LightingColorFilter ACTOR_LIFT_FILTER =
+            new LightingColorFilter(Color.WHITE, Color.rgb(16, 16, 20));
+    private static final LightingColorFilter ACTOR_HIT_FLASH_FILTER =
+            new LightingColorFilter(Color.BLACK, Color.rgb(255, 244, 232));
+
     private static final int ACTION_NONE = 0;
     private static final int ACTION_ATTACK = 1;
     private static final int ACTION_SPEAR = 2;
     private static final int ACTION_SIPHON = 3;
     private static final int ACTION_NOVA = 4;
+    private static final int ACTION_RUSH = 5;
+    private static final int ACTION_RAIN = 6;
+    private static final int ACTION_CHAIN = 7;
+    private static final int ACTION_PILLAR = 8;
+    private static final int ACTION_ECLIPSE = 9;
+
+    private static final int FX_TETHER = 1;
+    private static final int FX_NOVA = 2;
+    private static final int FX_SPEAR_IMPACT = 3;
+    private static final int FX_RUSH = 4;
+    private static final int FX_RAIN = 5;
+    private static final int FX_CHAIN = 6;
+    private static final int FX_PILLAR = 7;
+    private static final int FX_ECLIPSE = 8;
+
+    private static final int ICON_DASH = 0;
+    private static final int ICON_SPEAR = 1;
+    private static final int ICON_SIPHON = 2;
+    private static final int ICON_NOVA = 3;
+    private static final int ICON_RUSH = 4;
+    private static final int ICON_RAIN = 5;
+    private static final int ICON_CHAIN = 6;
+    private static final int ICON_PILLAR = 7;
+    private static final int ICON_ECLIPSE = 8;
 
     private static final int ENEMY_MELEE = 1;
     private static final int ENEMY_HEAVY = 2;
@@ -55,10 +96,51 @@ public final class GameView extends View {
             "월하 성역", "잿빛 숲", "진홍 성채"
     };
     private static final String[] REGION_SUBTITLES = {
-            "잠든 혈족의 흔적", "재 속에서 속삭이는 망령", "심판관이 지키는 마지막 문"
+            "잠든 혈족의 흔적", "재 속에서 속삭이는 망령", "월식의 여왕이 지키는 마지막 문"
     };
     private static final String[] ENEMY_NAMES = {
             "굶주린 혈귀", "검은 사냥꾼", "잿빛 망령", "태양의 심판관"
+    };
+    private static final String[] BOSS_NAMES = {
+            "태양의 심판관", "잿빛 수문장", "월식의 여왕"
+    };
+    private static final String[] BOSS_EPITHETS = {
+            "거짓 태양의 대행자", "죽은 성문의 파수꾼", "혈월 왕좌의 주인"
+    };
+
+    private static final String[] STORY_CHAPTERS = {
+            "PROLOGUE  ·  피 없는 밤",
+            "CHAPTER I  ·  재가 된 맹세",
+            "CHAPTER II  ·  거짓 태양",
+            "DEMO END  ·  혈월의 그릇"
+    };
+    private static final String[][] STORY_SPEAKERS = {
+            {"기록", "리안", "카엘"},
+            {"리안", "카엘", "잿빛 수문장"},
+            {"잿빛 수문장", "카엘", "리안"},
+            {"월식의 여왕", "카엘", "기록"}
+    };
+    private static final String[][] STORY_LINES = {
+            {
+                    "태양이 멈춘 지 일곱 번째 밤. 인간과 혈족의 피가 동시에 말라가기 시작했다.",
+                    "카엘, 네 심장에 봉인된 혈월이 이 재앙의 열쇠야. 세 개의 봉인을 찾아.",
+                    "끝까지 걷겠다. 내가 괴물이 되기 전에, 이 밤의 근원을 벤다."
+            },
+            {
+                    "두 번째 봉인은 잿빛 숲에 있어. 하지만 숲은 네가 버린 기억을 먹고 자라.",
+                    "기억을 잃어도 약속은 남는다. 리안에게 새벽을 돌려주겠어.",
+                    "순혈의 후계자여, 네가 구하려는 인간이 첫 번째 봉인을 깨뜨렸다."
+            },
+            {
+                    "세 봉인은 감옥이 아니다. 네 안의 혈월을 완성하는 열쇠다.",
+                    "그렇다면 이 힘의 주인은 혈월이 아니라 나다. 내 피로 결말을 다시 쓴다.",
+                    "성채의 왕좌 아래로 와. 진짜 새벽과 내가 감춘 죄가 그곳에 있어."
+            },
+            {
+                    "네가 혈월을 쫓은 것이 아니다. 혈월이 자신의 몸을 되찾으러 너를 불렀다.",
+                    "나는 그릇이 아니다. 밤을 삼키고도 인간으로 남겠다는 선택이다.",
+                    "다음 장: 황혼 도시. 리안의 배신과 카엘의 첫 번째 일출."
+            }
     };
 
     private enum Screen {
@@ -67,11 +149,19 @@ public final class GameView extends View {
         PAUSED,
         GROWTH,
         DEFEAT,
-        NEW_CONFIRM
+        NEW_CONFIRM,
+        STORY,
+        INVENTORY,
+        OFFLINE_REWARD
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+    private final Path effectPath = new Path();
+    private final Rect atlasSource = new Rect();
+    private final RectF spriteDestination = new RectF();
+    private final RectF trailDestination = new RectF();
+    private final RectF effectBounds = new RectF();
     private final Typeface titleTypeface = Typeface.create("serif", Typeface.BOLD);
     private final Typeface uiTypeface = Typeface.create("sans-serif", Typeface.NORMAL);
     private final Typeface uiBoldTypeface = Typeface.create("sans-serif", Typeface.BOLD);
@@ -80,12 +170,19 @@ public final class GameView extends View {
     private Bitmap heroAtlas;
     private Bitmap enemyAtlas;
     private Bitmap bossAtlas;
+    private Bitmap ashWardenBossAtlas;
+    private Bitmap eclipseSovereignBossAtlas;
+    private Bitmap bloodArtsAtlas;
+    private Bitmap bloodArtsAnimationAtlasA;
+    private Bitmap bloodArtsAnimationAtlasB;
+    private Bitmap impactAnimationAtlas;
     private Bitmap currentBackground;
     private int currentBackgroundRegion = -1;
     private boolean combatAtlasLoadAttempted;
-    private boolean bossAtlasLoadAttempted;
+    private final boolean[] bossAtlasLoadAttempted = new boolean[3];
 
     private final RpgProgressStore progressStore;
+    private final GameAudio audio;
     private RpgProgress progress;
     private boolean continueAvailable;
 
@@ -94,18 +191,51 @@ public final class GameView extends View {
     private final List<Projectile> projectiles = new ArrayList<>();
     private final List<Particle> particles = new ArrayList<>();
     private final List<FloatingText> floatingTexts = new ArrayList<>();
+    private final List<SkillEffect> skillEffects = new ArrayList<>();
+    private final List<ImpactEffect> impactEffects = new ArrayList<>();
 
     private Screen screen = Screen.TITLE;
     private Screen growthReturnScreen = Screen.PLAYING;
+    private Screen inventoryReturnScreen = Screen.PLAYING;
+    private Screen offlineReturnScreen = Screen.STORY;
     private long lastFrameNanos;
     private float accumulator;
     private float renderScale = 1f;
     private float renderOffsetX;
     private float renderOffsetY;
     private float ambientClock;
+    private float renderInterpolation;
     private float hitStop;
     private float screenShake;
     private float damageFlash;
+    private float impactFlash;
+    private float impactX;
+    private float impactY;
+    private float impactDirection = 1f;
+    private float cameraKickX;
+    private float cameraKickY;
+    private float cameraZoomPulse;
+    private float skillBloom;
+    private boolean impactHeavy;
+    private int hitCombo;
+    private float hitComboTimer;
+    private float hitComboPulse;
+    private float bossIntroTimer;
+    private float bossIntroDuration;
+    private String bossIntroName = "";
+    private int bossIntroColor = CRIMSON;
+    private int bossIntroVariant;
+    private float skillCalloutTimer;
+    private float skillCalloutDuration;
+    private String skillCalloutText = "";
+    private int skillCalloutColor = CRIMSON;
+    private float combatNarrativeTimer;
+    private float combatNarrativeDuration;
+    private float combatNarrativeDelay;
+    private String combatNarrativeSpeaker = "";
+    private String combatNarrativeLine = "";
+    private CombatStory.Beat pendingCombatNarrative;
+    private boolean midpointNarrativeShown;
     private float toastTimer;
     private String toastText = "";
 
@@ -124,9 +254,17 @@ public final class GameView extends View {
     private int comboIndex;
     private float comboGrace;
     private float comboDisplayTimer;
+    private int huntChain;
+    private float huntChainTimer;
     private float spearCooldown;
     private float siphonCooldown;
     private float novaCooldown;
+    private float rushCooldown;
+    private float rainCooldown;
+    private float chainCooldown;
+    private float pillarCooldown;
+    private float eclipseCooldown;
+    private float autoSkillThinkTimer;
 
     private int remainingToSpawn;
     private int waveTarget;
@@ -141,6 +279,18 @@ public final class GameView extends View {
     private float chapterBannerTimer;
     private String levelBannerText = "";
 
+    private float worldTravel;
+    private int storyChapter;
+    private int storyLine;
+    private boolean storyStartsWave;
+    private boolean storyFullRestore;
+    private boolean storyFinale;
+    private int selectedInventoryItem = -1;
+    private int offlineElapsedSeconds;
+    private int offlineGoldReward;
+    private int offlineXpReward;
+    private int offlineLevelsGained;
+
     private boolean saveDirty;
     private float saveDelay;
 
@@ -151,6 +301,8 @@ public final class GameView extends View {
     private boolean spearPressed;
     private boolean siphonPressed;
     private boolean novaPressed;
+    private int queuedSkillAction = ACTION_NONE;
+    private float queuedSkillTimer;
     private int leftPointer = -1;
     private int rightPointer = -1;
 
@@ -164,6 +316,10 @@ public final class GameView extends View {
     private final RectF confirmNewButton = new RectF(84f, 720f, 346f, 808f);
     private final RectF cancelNewButton = new RectF(374f, 720f, 636f, 808f);
     private final RectF growthCloseButton = new RectF(204f, 1094f, 516f, 1168f);
+    private final RectF inventoryHudButton = new RectF(398f, 232f, 544f, 286f);
+    private final RectF inventoryActionButton = new RectF(52f, 1040f, 412f, 1122f);
+    private final RectF inventoryCloseButton = new RectF(430f, 1040f, 668f, 1122f);
+    private final RectF offlineClaimButton = new RectF(134f, 898f, 586f, 988f);
     private final RectF[] upgradeButtons = new RectF[7];
 
     public GameView(Context context) {
@@ -171,6 +327,7 @@ public final class GameView extends View {
         setFocusable(true);
         setClickable(true);
         progressStore = new RpgProgressStore(context);
+        audio = new GameAudio(context);
         RpgProgress loaded = progressStore.load();
         continueAvailable = loaded != null;
         progress = loaded == null ? RpgProgress.fresh() : loaded;
@@ -226,16 +383,98 @@ public final class GameView extends View {
             return;
         }
         combatAtlasLoadAttempted = true;
-        heroAtlas = decodeBitmap(R.drawable.hero_side_atlas, false);
+        heroAtlas = decodeBitmap(R.drawable.hero_side_atlas_v5, false);
         enemyAtlas = decodeBitmap(R.drawable.enemy_side_atlas, false);
+        bloodArtsAnimationAtlasA = decodeBitmap(R.drawable.vfx_blood_arts_anim_a_v2, false);
+        bloodArtsAnimationAtlasB = decodeBitmap(R.drawable.vfx_blood_arts_anim_b_v2, false);
+        impactAnimationAtlas = decodeBitmap(R.drawable.vfx_combat_impact_anim_v1, false);
+        if (bloodArtsAnimationAtlasA == null || bloodArtsAnimationAtlasB == null) {
+            bloodArtsAtlas = decodeBitmap(R.drawable.vfx_blood_arts_atlas_v1, false);
+        }
     }
 
-    private void ensureBossAtlas() {
-        if (bossAtlasLoadAttempted) {
+    private void ensureBossAtlas(int variant) {
+        int safeVariant = RpgRules.clamp(variant, 0, 2);
+        if (bossAtlasLoadAttempted[safeVariant]) {
             return;
         }
-        bossAtlasLoadAttempted = true;
-        bossAtlas = decodeBitmap(R.drawable.boss_side_atlas, false);
+        bossAtlasLoadAttempted[safeVariant] = true;
+        if (safeVariant == 0) {
+            bossAtlas = decodeBitmap(R.drawable.boss_sun_inquisitor_atlas_v3, false);
+        } else if (safeVariant == 1) {
+            ashWardenBossAtlas = decodeBitmap(R.drawable.boss_ash_warden_atlas_v3, false);
+        } else {
+            eclipseSovereignBossAtlas = decodeBitmap(
+                    R.drawable.boss_eclipse_sovereign_atlas_v3, false);
+        }
+        if (bossAtlasForVariant(safeVariant) == null && bossAtlas == null) {
+            bossAtlas = decodeBitmap(R.drawable.boss_sun_inquisitor_atlas_v3, false);
+        }
+    }
+
+    private Bitmap bossAtlasForVariant(int variant) {
+        int safeVariant = RpgRules.clamp(variant, 0, 2);
+        if (safeVariant == 1 && ashWardenBossAtlas != null
+                && !ashWardenBossAtlas.isRecycled()) {
+            return ashWardenBossAtlas;
+        }
+        if (safeVariant == 2 && eclipseSovereignBossAtlas != null
+                && !eclipseSovereignBossAtlas.isRecycled()) {
+            return eclipseSovereignBossAtlas;
+        }
+        return bossAtlas;
+    }
+
+    private static String bossName(int variant) {
+        return BOSS_NAMES[RpgRules.clamp(variant, 0, BOSS_NAMES.length - 1)];
+    }
+
+    private static String bossEpithet(int variant) {
+        return BOSS_EPITHETS[RpgRules.clamp(variant, 0, BOSS_EPITHETS.length - 1)];
+    }
+
+    private static int bossAccentColor(int variant) {
+        int safeVariant = RpgRules.clamp(variant, 0, 2);
+        return safeVariant == 1 ? CYAN : safeVariant == 2
+                ? Color.rgb(241, 54, 105) : GOLD;
+    }
+
+    private static String combatSkillName(int action) {
+        if (action == ACTION_NOVA) {
+            return "혈월 폭발";
+        }
+        if (action == ACTION_RUSH) {
+            return "혈영쇄도";
+        }
+        if (action == ACTION_RAIN) {
+            return "적월검우";
+        }
+        if (action == ACTION_CHAIN) {
+            return "혈사슬";
+        }
+        if (action == ACTION_PILLAR) {
+            return "진홍기둥";
+        }
+        if (action == ACTION_ECLIPSE) {
+            return "개기월식";
+        }
+        return "";
+    }
+
+    private static int combatSkillColor(int action) {
+        if (action == ACTION_CHAIN) {
+            return CYAN;
+        }
+        if (action == ACTION_RAIN) {
+            return GOLD;
+        }
+        if (action == ACTION_ECLIPSE) {
+            return VIOLET;
+        }
+        if (action == ACTION_PILLAR) {
+            return Color.rgb(255, 88, 75);
+        }
+        return CRIMSON;
     }
 
     private Bitmap obtainBackground(int region) {
@@ -274,8 +513,10 @@ public final class GameView extends View {
                 accumulator -= FIXED_STEP;
                 steps++;
             }
+            renderInterpolation = RpgRules.clamp(accumulator / FIXED_STEP, 0f, 1f);
         } else {
             updateMenuEffects(frameDelta);
+            renderInterpolation = 1f;
         }
 
         renderScale = Math.min(getWidth() / LOGICAL_WIDTH, getHeight() / LOGICAL_HEIGHT);
@@ -295,23 +536,67 @@ public final class GameView extends View {
     private void updateMenuEffects(float dt) {
         screenShake = Math.max(0f, screenShake - dt * 22f);
         damageFlash = Math.max(0f, damageFlash - dt * 2.6f);
+        impactFlash = Math.max(0f, impactFlash - dt * 12f);
+        cameraKickX = approach(cameraKickX, 0f, 180f * dt);
+        cameraKickY = approach(cameraKickY, 0f, 180f * dt);
+        cameraZoomPulse = approach(cameraZoomPulse, 0f, 2.4f * dt);
+        skillBloom = Math.max(0f, skillBloom - dt * 2.8f);
+        bossIntroTimer = Math.max(0f, bossIntroTimer - dt);
+        skillCalloutTimer = Math.max(0f, skillCalloutTimer - dt);
         toastTimer = Math.max(0f, toastTimer - dt);
         updateParticles(dt * 0.35f);
+        updateSkillEffects(dt * 0.35f);
+        updateImpactEffects(dt * 0.35f);
         updateFloatingTexts(dt);
     }
 
     private void updateGame(float dt) {
+        hero.previousX = hero.x;
+        for (Enemy enemy : enemies) {
+            enemy.previousX = enemy.x;
+        }
         waveBannerTimer = Math.max(0f, waveBannerTimer - dt);
         levelBannerTimer = Math.max(0f, levelBannerTimer - dt);
         chapterBannerTimer = Math.max(0f, chapterBannerTimer - dt);
         toastTimer = Math.max(0f, toastTimer - dt);
         screenShake = Math.max(0f, screenShake - dt * 26f);
         damageFlash = Math.max(0f, damageFlash - dt * 3.2f);
+        impactFlash = Math.max(0f, impactFlash - dt * 14f);
+        cameraKickX = approach(cameraKickX, 0f, 260f * dt);
+        cameraKickY = approach(cameraKickY, 0f, 230f * dt);
+        cameraZoomPulse = approach(cameraZoomPulse, 0f, 2.9f * dt);
+        skillBloom = Math.max(0f, skillBloom - dt * 3.1f);
+        bossIntroTimer = Math.max(0f, bossIntroTimer - dt);
+        skillCalloutTimer = Math.max(0f, skillCalloutTimer - dt);
+        updateCombatNarrative(dt);
+        hitComboPulse = Math.max(0f, hitComboPulse - dt * 4.8f);
+        if (hitComboTimer > 0f) {
+            hitComboTimer = Math.max(0f, hitComboTimer - dt);
+            if (hitComboTimer <= 0f) {
+                hitCombo = 0;
+            }
+        }
         comboGrace = Math.max(0f, comboGrace - dt);
         comboDisplayTimer = Math.max(0f, comboDisplayTimer - dt);
+        if (huntChainTimer > 0f) {
+            huntChainTimer = Math.max(0f, huntChainTimer - dt);
+            if (huntChainTimer <= 0f) {
+                huntChain = 0;
+            }
+        }
         spearCooldown = Math.max(0f, spearCooldown - dt);
         siphonCooldown = Math.max(0f, siphonCooldown - dt);
         novaCooldown = Math.max(0f, novaCooldown - dt);
+        rushCooldown = Math.max(0f, rushCooldown - dt);
+        rainCooldown = Math.max(0f, rainCooldown - dt);
+        chainCooldown = Math.max(0f, chainCooldown - dt);
+        pillarCooldown = Math.max(0f, pillarCooldown - dt);
+        eclipseCooldown = Math.max(0f, eclipseCooldown - dt);
+        autoSkillThinkTimer = Math.max(0f, autoSkillThinkTimer - dt);
+        queuedSkillTimer = Math.max(0f, queuedSkillTimer - dt);
+        if (queuedSkillTimer <= 0f) {
+            queuedSkillAction = ACTION_NONE;
+        }
 
         if (saveDirty) {
             saveDelay -= dt;
@@ -323,6 +608,8 @@ public final class GameView extends View {
         if (hitStop > 0f) {
             hitStop = Math.max(0f, hitStop - dt);
             updateParticles(dt * 0.2f);
+            updateSkillEffects(dt * 0.2f);
+            updateImpactEffects(dt * 0.32f);
             return;
         }
 
@@ -331,8 +618,11 @@ public final class GameView extends View {
         updateWaveSpawning(dt);
         updateEnemies(dt);
         resolveActorSpacing();
+        recenterCombat(dt);
         updateProjectiles(dt);
         updateParticles(dt);
+        updateSkillEffects(dt);
+        updateImpactEffects(dt);
         updateFloatingTexts(dt);
 
         if (!hero.dead && !waveComplete) {
@@ -368,32 +658,167 @@ public final class GameView extends View {
         if (hero.dead || waveComplete) {
             return;
         }
+        if (spearPressed) {
+            bufferSkill(ACTION_SPEAR);
+        }
+        if (siphonPressed) {
+            bufferSkill(ACTION_SIPHON);
+        }
+        if (novaPressed) {
+            bufferSkill(ACTION_NOVA);
+        }
+        if (queuedSkillAction == ACTION_NONE && autoSkillThinkTimer <= 0f) {
+            autoSkillThinkTimer = 0.16f;
+            int automaticAction = chooseAutomaticSkill();
+            if (automaticAction != ACTION_NONE) {
+                bufferSkill(automaticAction);
+            }
+        }
         if (dashPressed && (heroAction == ACTION_NONE || heroAction == ACTION_ATTACK)) {
             startDash();
         }
-        if (attackPressed) {
-            if (heroAction == ACTION_ATTACK) {
-                comboQueued = true;
-            } else if (heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-                startAttack(comboGrace > 0f ? (comboIndex + 1) % 3 : 0);
+        if (queuedSkillAction != ACTION_NONE && hero.dashTimer <= 0f) {
+            if (heroAction == ACTION_NONE) {
+                startQueuedSkill();
+            } else if (heroAction == ACTION_ATTACK && heroActionTriggered
+                    && canStartQueuedSkill()) {
+                heroAction = ACTION_NONE;
+                heroActionTimer = 0f;
+                comboQueued = false;
+                comboGrace = 0f;
+                startQueuedSkill();
             }
         }
-        if (spearPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-            tryStartSpear();
-        }
-        if (siphonPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-            tryStartSiphon();
-        }
-        if (novaPressed && heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
-            tryStartNova();
+        if (heroAction == ACTION_NONE && hero.dashTimer <= 0f) {
+            Enemy target = nearestEnemy(1000f);
+            if (target != null) {
+                hero.facing = target.x >= hero.x ? 1 : -1;
+                if (Math.abs(target.x - hero.x) <= 225f) {
+                    startAttack(comboGrace > 0f ? (comboIndex + 1) % 3 : 0);
+                }
+            }
         }
     }
 
-    private void startDash() {
-        int direction = rightHeld ? 1 : leftHeld ? -1 : hero.facing;
-        if (direction == 0) {
-            direction = 1;
+    private int chooseAutomaticSkill() {
+        Enemy target = nearestEnemy(620f);
+        if (target == null) {
+            return ACTION_NONE;
         }
+        int nearbyEnemies = aliveEnemyCountWithin(285f);
+        if (progress.level >= 15 && eclipseCooldown <= 0f
+                && (nearbyEnemies >= 3 || target.kind == RpgRules.ENEMY_BOSS)) {
+            return ACTION_ECLIPSE;
+        }
+        if (progress.level >= 12 && pillarCooldown <= 0f && nearbyEnemies >= 2) {
+            return ACTION_PILLAR;
+        }
+        if (progress.level >= 9 && chainCooldown <= 0f) {
+            return ACTION_CHAIN;
+        }
+        if (progress.level >= 7 && progress.novaLevel > 0 && novaCooldown <= 0f
+                && heroBlood >= 55f
+                && (nearbyEnemies >= 2 || target.kind == RpgRules.ENEMY_BOSS)) {
+            return ACTION_NOVA;
+        }
+        if (progress.level >= 6 && rainCooldown <= 0f) {
+            return ACTION_RAIN;
+        }
+        if (progress.level >= 4 && progress.siphonLevel > 0 && siphonCooldown <= 0f
+                && heroBlood >= 30f && heroHealth <= heroMaxHealth * 0.82f
+                && Math.abs(target.x - hero.x) <= 350f) {
+            return ACTION_SIPHON;
+        }
+        if (progress.level >= 3 && rushCooldown <= 0f) {
+            return ACTION_RUSH;
+        }
+        float automaticSpearThreshold = progress.level >= 7 ? 75f
+                : progress.level >= 4 ? 50f : 20f;
+        if (spearCooldown <= 0f && heroBlood >= automaticSpearThreshold
+                && Math.abs(target.x - hero.x) <= 520f) {
+            return ACTION_SPEAR;
+        }
+        return ACTION_NONE;
+    }
+
+    private int aliveEnemyCountWithin(float radius) {
+        int count = 0;
+        for (Enemy enemy : enemies) {
+            if (!enemy.dead && enemy.spawnTimer <= 0.18f
+                    && Math.abs(enemy.x - hero.x) <= radius) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void bufferSkill(int action) {
+        queuedSkillAction = action;
+        queuedSkillTimer = 0.42f;
+    }
+
+    private void startQueuedSkill() {
+        int action = queuedSkillAction;
+        queuedSkillAction = ACTION_NONE;
+        queuedSkillTimer = 0f;
+        if (action == ACTION_SPEAR) {
+            tryStartSpear();
+        } else if (action == ACTION_SIPHON) {
+            tryStartSiphon();
+        } else if (action == ACTION_NOVA) {
+            tryStartNova();
+        } else if (action == ACTION_RUSH) {
+            tryStartRush();
+        } else if (action == ACTION_RAIN) {
+            tryStartRain();
+        } else if (action == ACTION_CHAIN) {
+            tryStartChain();
+        } else if (action == ACTION_PILLAR) {
+            tryStartPillar();
+        } else if (action == ACTION_ECLIPSE) {
+            tryStartEclipse();
+        }
+    }
+
+    private boolean canStartQueuedSkill() {
+        if (queuedSkillAction == ACTION_SPEAR) {
+            return spearCooldown <= 0f && heroBlood >= 20f;
+        }
+        if (queuedSkillAction == ACTION_SIPHON) {
+            return progress.level >= 4 && progress.siphonLevel > 0
+                    && siphonCooldown <= 0f && heroBlood >= 30f
+                    && nearestEnemy(330f) != null;
+        }
+        if (queuedSkillAction == ACTION_NOVA) {
+            return progress.level >= 7 && progress.novaLevel > 0
+                    && novaCooldown <= 0f && heroBlood >= 55f;
+        }
+        if (queuedSkillAction == ACTION_RUSH) {
+            return progress.level >= 3 && rushCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_RAIN) {
+            return progress.level >= 6 && rainCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_CHAIN) {
+            return progress.level >= 9 && chainCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_PILLAR) {
+            return progress.level >= 12 && pillarCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        if (queuedSkillAction == ACTION_ECLIPSE) {
+            return progress.level >= 15 && eclipseCooldown <= 0f
+                    && nearestEnemy(620f) != null;
+        }
+        return false;
+    }
+
+    private void startDash() {
+        Enemy target = nearestEnemy(1000f);
+        int direction = target == null || target.x >= hero.x ? 1 : -1;
         hero.facing = direction;
         hero.dashTimer = 0.19f;
         hero.invulnerability = Math.max(hero.invulnerability, 0.24f);
@@ -401,20 +826,25 @@ public final class GameView extends View {
         heroAction = ACTION_NONE;
         comboQueued = false;
         addBurst(hero.x, GROUND_Y - 86f, Color.argb(205, 181, 25, 60), 12, 185f);
+        audio.playDash();
         performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
 
     private void startAttack(int nextCombo) {
         comboIndex = RpgRules.clamp(nextCombo, 0, 2);
         heroAction = ACTION_ATTACK;
-        heroActionDuration = comboIndex == 2 ? 0.52f : 0.38f;
+        heroActionDuration = comboIndex == 0 ? 0.27f : comboIndex == 1 ? 0.29f : 0.39f;
         heroActionTimer = heroActionDuration;
-        heroActionTrigger = comboIndex == 2 ? 0.27f : 0.18f;
+        heroActionTrigger = comboIndex == 0 ? 0.08f : comboIndex == 1 ? 0.09f : 0.13f;
         heroActionTriggered = false;
         comboQueued = false;
         Enemy target = nearestEnemy(230f);
         if (target != null) {
             hero.facing = target.x >= hero.x ? 1 : -1;
+            if (Math.abs(target.x - hero.x) > 72f) {
+                float drive = comboIndex == 2 ? 430f : 380f;
+                hero.velocity = hero.facing * Math.max(Math.abs(hero.velocity), drive);
+            }
         }
     }
 
@@ -433,7 +863,7 @@ public final class GameView extends View {
         }
         heroBlood -= 20f;
         spearCooldown = 0.9f;
-        startHeroSkill(ACTION_SPEAR, 0.56f, 0.29f);
+        startHeroSkill(ACTION_SPEAR, 0.32f, 0.085f);
     }
 
     private void tryStartSiphon() {
@@ -457,7 +887,7 @@ public final class GameView extends View {
         hero.facing = target.x >= hero.x ? 1 : -1;
         heroBlood -= 30f;
         siphonCooldown = 4.8f;
-        startHeroSkill(ACTION_SIPHON, 0.72f, 0.37f);
+        startHeroSkill(ACTION_SIPHON, 0.42f, 0.12f);
     }
 
     private void tryStartNova() {
@@ -475,7 +905,58 @@ public final class GameView extends View {
         }
         heroBlood -= 55f;
         novaCooldown = 7.5f;
-        startHeroSkill(ACTION_NOVA, 0.88f, 0.48f);
+        startHeroSkill(ACTION_NOVA, 0.52f, 0.17f);
+    }
+
+    private void tryStartRush() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 3 || rushCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        rushCooldown = 3.6f;
+        hero.velocity = hero.facing * 680f;
+        startHeroSkill(ACTION_RUSH, 0.34f, 0.08f);
+    }
+
+    private void tryStartRain() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 6 || rainCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        rainCooldown = 6.2f;
+        startHeroSkill(ACTION_RAIN, 0.48f, 0.13f);
+    }
+
+    private void tryStartChain() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 9 || chainCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        chainCooldown = 5.2f;
+        startHeroSkill(ACTION_CHAIN, 0.42f, 0.105f);
+    }
+
+    private void tryStartPillar() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 12 || pillarCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        pillarCooldown = 8.4f;
+        startHeroSkill(ACTION_PILLAR, 0.54f, 0.16f);
+    }
+
+    private void tryStartEclipse() {
+        Enemy target = nearestEnemy(620f);
+        if (progress.level < 15 || eclipseCooldown > 0f || target == null) {
+            return;
+        }
+        hero.facing = target.x >= hero.x ? 1 : -1;
+        eclipseCooldown = 13.5f;
+        startHeroSkill(ACTION_ECLIPSE, 0.68f, 0.22f);
     }
 
     private void startHeroSkill(int action, float duration, float trigger) {
@@ -485,9 +966,17 @@ public final class GameView extends View {
         heroActionTrigger = trigger;
         heroActionTriggered = false;
         comboQueued = false;
+        String callout = combatSkillName(action);
+        if (!callout.isEmpty()) {
+            skillCalloutText = callout;
+            skillCalloutColor = combatSkillColor(action);
+            skillCalloutDuration = action == ACTION_ECLIPSE ? 1.05f : 0.72f;
+            skillCalloutTimer = skillCalloutDuration;
+        }
     }
 
     private void updateHero(float dt) {
+        hero.animClock += dt;
         hero.invulnerability = Math.max(0f, hero.invulnerability - dt);
         hero.hurtTimer = Math.max(0f, hero.hurtTimer - dt);
         if (hero.dead) {
@@ -508,7 +997,7 @@ public final class GameView extends View {
                 int finished = heroAction;
                 heroAction = ACTION_NONE;
                 if (finished == ACTION_ATTACK) {
-                    comboGrace = 0.3f;
+                    comboGrace = 0.22f;
                     comboDisplayTimer = 0.8f;
                     if (comboQueued && comboIndex < 2) {
                         startAttack(comboIndex + 1);
@@ -521,31 +1010,46 @@ public final class GameView extends View {
             hero.dashTimer = Math.max(0f, hero.dashTimer - dt);
             hero.x += hero.velocity * dt;
             hero.runDistance += Math.abs(hero.velocity) * dt;
+            worldTravel += Math.max(0f, hero.velocity) * dt;
             if (hero.dashTimer <= 0f) {
                 hero.velocity *= 0.28f;
             }
         } else {
-            float movementMultiplier = heroAction == ACTION_NONE ? 1f : 0.32f;
-            float desired = (rightHeld ? 1f : 0f) - (leftHeld ? 1f : 0f);
-            if (desired != 0f) {
-                hero.facing = desired > 0f ? 1 : -1;
-            } else if (heroAction == ACTION_NONE) {
-                Enemy target = nearestEnemy(360f);
-                if (target != null) {
-                    hero.facing = target.x >= hero.x ? 1 : -1;
+            float movementMultiplier = heroAction == ACTION_NONE ? 1f
+                    : heroAction == ACTION_ATTACK ? 1.32f
+                    : heroAction == ACTION_RUSH ? 1.85f : 0.24f;
+            Enemy target = nearestEnemy(1000f);
+            float desired = 0f;
+            if (target == null) {
+                desired = remainingToSpawn > 0 ? 1f : 0f;
+            } else {
+                float gap = target.x - hero.x;
+                float stopDistance = heroAction == ACTION_ATTACK ? 68f
+                        : heroAction == ACTION_RUSH ? 54f : 104f;
+                if (Math.abs(gap) > stopDistance) {
+                    desired = gap > 0f ? 1f : -1f;
                 }
+                hero.facing = gap >= 0f ? 1 : -1;
             }
-            float targetVelocity = desired * 218f * movementMultiplier;
-            hero.velocity = approach(hero.velocity, targetVelocity, 1050f * dt);
+            float targetVelocity = desired * 278f * movementMultiplier;
+            float acceleration = heroAction == ACTION_ATTACK || heroAction == ACTION_RUSH
+                    ? 1900f : 1320f;
+            hero.velocity = approach(hero.velocity, targetVelocity, acceleration * dt);
             hero.x += hero.velocity * dt;
             hero.runDistance += Math.abs(hero.velocity) * dt;
+            worldTravel += Math.max(0f, hero.velocity) * dt;
+            int footstep = (int) (hero.runDistance / 46f);
+            if (Math.abs(hero.velocity) > 80f && footstep > hero.lastFootstep) {
+                hero.lastFootstep = footstep;
+                addFootstep(hero.x - hero.facing * 18f, GROUND_Y + 2f);
+            }
         }
         hero.x = RpgRules.clamp(hero.x, RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
     }
 
     private void executeHeroAction() {
         if (heroAction == ACTION_ATTACK) {
-            Enemy target = nearestEnemy(132f + comboIndex * 8f);
+            Enemy target = nearestEnemy(205f + comboIndex * 10f);
             if (target != null && faces(hero.x, hero.facing, target.x)) {
                 int damage = RpgRules.meleeDamage(heroAttackPower, comboIndex);
                 damageEnemy(target, damage, 95f + comboIndex * 52f, comboIndex == 2);
@@ -561,15 +1065,21 @@ public final class GameView extends View {
             projectile.enemyOwned = false;
             projectile.kind = 0;
             projectile.x = hero.x + hero.facing * 52f;
+            projectile.previousX = projectile.x;
             projectile.y = GROUND_Y - 112f;
-            projectile.velocityX = hero.facing * 570f;
+            projectile.velocityX = hero.facing * 920f;
             projectile.damage = RpgRules.spearDamage(heroAttackPower, progress.spearLevel);
-            projectile.life = 1.35f;
-            projectile.radius = 42f;
+            projectile.life = 0.88f;
+            projectile.maxLife = projectile.life;
+            projectile.radius = 46f;
             projectile.pierce = 3;
             projectile.color = CRIMSON;
             projectiles.add(projectile);
-            addBurst(projectile.x, projectile.y, CRIMSON, 16, 210f);
+            addBurst(projectile.x, projectile.y, CRIMSON, 32, 345f);
+            cameraKickX = -hero.facing * 4f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.008f);
+            skillBloom = Math.max(skillBloom, 0.48f);
+            audio.playBloodSpear();
         } else if (heroAction == ACTION_SIPHON) {
             Enemy target = nearestEnemy(350f);
             if (target != null) {
@@ -579,8 +1089,14 @@ public final class GameView extends View {
                 heroHealth += healed;
                 heroBlood = Math.min(heroMaxBlood, heroBlood + damage * 0.22f);
                 addBloodTether(target.x, GROUND_Y - 112f, hero.x, GROUND_Y - 112f);
+                addSkillEffect(FX_SPEAR_IMPACT, target.x, GROUND_Y - 108f,
+                        hero.x, GROUND_Y - 112f, CRIMSON, 0.32f, 126f, hero.facing);
+                hitStop = Math.max(hitStop, 0.055f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.018f);
+                skillBloom = Math.max(skillBloom, 0.48f);
                 floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 230f,
                         "+" + Math.round(healed), CYAN, 1.05f));
+                audio.playSiphon();
             }
         } else if (heroAction == ACTION_NOVA) {
             int hits = 0;
@@ -591,9 +1107,146 @@ public final class GameView extends View {
                     hits++;
                 }
             }
-            addNovaBurst(hero.x, GROUND_Y - 90f, 255f);
-            screenShake = Math.max(screenShake, 13f);
-            hitStop = hits > 0 ? 0.075f : 0.025f;
+            addNovaBurst(hero.x, GROUND_Y - 90f, 310f);
+            addSkillEffect(FX_NOVA, hero.x, GROUND_Y - 82f,
+                    hero.x, GROUND_Y - 82f, CRIMSON, 0.56f, 330f, hero.facing);
+            impactX = hero.x;
+            impactY = GROUND_Y - 88f;
+            impactDirection = hero.facing;
+            impactHeavy = true;
+            impactFlash = Math.max(impactFlash, 0.96f);
+            screenShake = Math.max(screenShake, 6f);
+            hitStop = hits > 0 ? 0.09f : 0.035f;
+            cameraKickY = -3f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.018f);
+            skillBloom = 1f;
+            audio.playNova();
+        } else if (heroAction == ACTION_RUSH) {
+            Enemy target = nearestEnemy(620f);
+            if (target != null) {
+                float startX = hero.x;
+                hero.facing = target.x >= hero.x ? 1 : -1;
+                float destination = target.x - hero.facing * 62f;
+                hero.x = RpgRules.clamp(destination,
+                        RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
+                hero.previousX = startX;
+                hero.velocity = hero.facing * 410f;
+                addSkillEffect(FX_RUSH, startX, GROUND_Y - 104f,
+                        target.x, GROUND_Y - 104f, CRIMSON,
+                        0.36f, Math.abs(target.x - startX), hero.facing);
+                damageEnemy(target, RpgRules.rushDamage(heroAttackPower, progress.level),
+                        135f, true);
+                addSlashArc(target.x, GROUND_Y - 104f, hero.facing, Color.WHITE);
+                addSlashArc(target.x - hero.facing * 24f,
+                        GROUND_Y - 126f, hero.facing, CRIMSON);
+                addImpactBurst(target.x, GROUND_Y - 104f,
+                        hero.facing, 28, 390f);
+                skillBloom = Math.max(skillBloom, 0.62f);
+                audio.playDash();
+            }
+        } else if (heroAction == ACTION_RAIN) {
+            int hits = 0;
+            int damage = RpgRules.bladeRainDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (enemy.dead || enemy.spawnTimer > 0.18f) {
+                    continue;
+                }
+                addSkillEffect(FX_RAIN, enemy.x, GROUND_Y - 112f,
+                        enemy.x, GROUND_Y - 112f, CRIMSON,
+                        0.54f, 148f, hero.facing);
+                damageEnemy(enemy, damage, 92f, true);
+                addBladeRainBurst(enemy.x, GROUND_Y - 108f);
+                hits++;
+            }
+            if (hits > 0) {
+                impactX = hero.x;
+                impactY = GROUND_Y - 110f;
+                impactFlash = Math.max(impactFlash, 0.7f);
+                screenShake = Math.max(screenShake, 5f);
+                hitStop = Math.max(hitStop, 0.038f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.015f);
+                skillBloom = Math.max(skillBloom, 0.82f);
+                audio.playBloodSpear();
+            }
+        } else if (heroAction == ACTION_CHAIN) {
+            int hits = 0;
+            float fromX = hero.x;
+            float fromY = GROUND_Y - 118f;
+            int damage = RpgRules.bloodChainDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (enemy.dead || enemy.spawnTimer > 0.18f
+                        || Math.abs(enemy.x - hero.x) > 620f || hits >= 4) {
+                    continue;
+                }
+                float targetX = enemy.x;
+                float targetY = GROUND_Y - 112f;
+                addSkillEffect(FX_CHAIN, fromX, fromY, targetX, targetY,
+                        CYAN, 0.52f, Math.abs(targetX - fromX), hero.facing);
+                damageEnemy(enemy, damage, 72f, hits == 3);
+                addImpactBurst(targetX, targetY, targetX >= fromX ? 1f : -1f,
+                        14, 255f);
+                fromX = targetX;
+                fromY = targetY;
+                hits++;
+            }
+            if (hits > 0) {
+                heroBlood = Math.min(heroMaxBlood, heroBlood + hits * 5f);
+                hitStop = Math.max(hitStop, 0.045f);
+                skillBloom = Math.max(skillBloom, 0.72f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.016f);
+                audio.playChain();
+            }
+        } else if (heroAction == ACTION_PILLAR) {
+            int hits = 0;
+            int damage = RpgRules.crimsonPillarDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (enemy.dead || enemy.spawnTimer > 0.18f
+                        || Math.abs(enemy.x - hero.x) > 640f) {
+                    continue;
+                }
+                addSkillEffect(FX_PILLAR, enemy.x, GROUND_Y - 44f,
+                        enemy.x, GROUND_Y - 300f, CRIMSON,
+                        0.68f, 190f, hero.facing);
+                damageEnemy(enemy, damage, 150f, true);
+                addNovaBurst(enemy.x, GROUND_Y - 60f, 132f);
+                hits++;
+            }
+            if (hits > 0) {
+                impactX = hero.x;
+                impactY = GROUND_Y - 105f;
+                impactFlash = Math.max(impactFlash, 0.82f);
+                hitStop = Math.max(hitStop, 0.065f);
+                screenShake = Math.max(screenShake, 5.5f);
+                cameraZoomPulse = Math.max(cameraZoomPulse, 0.02f);
+                skillBloom = Math.max(skillBloom, 0.9f);
+                audio.playPillar();
+            }
+        } else if (heroAction == ACTION_ECLIPSE) {
+            int hits = 0;
+            int damage = RpgRules.eclipseDamage(heroAttackPower, progress.level);
+            for (Enemy enemy : enemies) {
+                if (!enemy.dead && enemy.spawnTimer <= 0.18f) {
+                    damageEnemy(enemy, damage, 230f, true);
+                    addImpactBurst(enemy.x, GROUND_Y - 112f,
+                            enemy.x >= hero.x ? 1f : -1f, 22, 350f);
+                    hits++;
+                }
+            }
+            addSkillEffect(FX_ECLIPSE, hero.x, GROUND_Y - 300f,
+                    hero.x, GROUND_Y - 300f, Color.rgb(245, 53, 104),
+                    1.05f, 560f, hero.facing);
+            addNovaBurst(hero.x, GROUND_Y - 94f, 430f);
+            impactX = hero.x;
+            impactY = GROUND_Y - 220f;
+            impactDirection = hero.facing;
+            impactHeavy = true;
+            impactFlash = 1f;
+            hitStop = hits > 0 ? 0.11f : 0.045f;
+            screenShake = Math.max(screenShake, 6f);
+            cameraKickY = -4f;
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.026f);
+            skillBloom = 1f;
+            audio.playEclipse();
         }
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
@@ -604,14 +1257,18 @@ public final class GameView extends View {
         }
         spawnTimer -= dt;
         if (spawnTimer <= 0f && aliveEnemyCount() < MAX_ACTIVE_ENEMIES) {
-            spawnEnemy();
-            spawnTimer = progress.wave == RpgRules.WAVES_PER_REGION ? 1f : 0.72f;
+            int batchSize = RpgRules.reinforcementBatchSize(aliveEnemyCount(),
+                    remainingToSpawn, MAX_ACTIVE_ENEMIES);
+            for (int index = 0; index < batchSize; index++) {
+                spawnEnemy();
+            }
+            spawnTimer = progress.wave == RpgRules.WAVES_PER_REGION ? 0.20f : 0.12f;
         }
     }
 
     private void spawnEnemy() {
         int kind;
-        if (progress.wave == RpgRules.WAVES_PER_REGION) {
+        if (progress.wave == RpgRules.WAVES_PER_REGION && spawnSerial == 0) {
             kind = RpgRules.ENEMY_BOSS;
         } else {
             int roll = (spawnSerial + progress.wave + progress.region * 2) % 6;
@@ -628,28 +1285,48 @@ public final class GameView extends View {
         Enemy enemy = new Enemy();
         enemy.id = nextEnemyId++;
         enemy.kind = kind;
-        boolean spawnRight = (spawnSerial & 1) == 0;
-        if (spawnRight && hero.x > 510f) {
-            spawnRight = false;
-        } else if (!spawnRight && hero.x < 210f) {
-            spawnRight = true;
-        }
-        enemy.x = spawnRight ? 638f : 82f;
+        enemy.bossVariant = kind == RpgRules.ENEMY_BOSS
+                ? RpgRules.bossVariantForRegion(progress.region) : 0;
+        enemy.elite = kind != RpgRules.ENEMY_BOSS
+                && RpgRules.isEliteSpawn(progress.wave, spawnSerial, waveTarget);
+        // This is a side-scrolling hunt: danger always enters from the road ahead.
+        enemy.x = 638f - spawnSerial % 3 * 18f;
+        enemy.previousX = enemy.x;
         enemy.facing = enemy.x > hero.x ? -1 : 1;
         enemy.maxHealth = RpgRules.enemyMaxHealth(kind, progress.region, progress.wave,
                 progress.level, progress.chapterClears);
+        if (enemy.elite) {
+            enemy.maxHealth = RpgRules.eliteHealth(Math.round(enemy.maxHealth));
+        }
         enemy.health = enemy.maxHealth;
         enemy.cooldown = 0.65f + random.nextFloat() * 0.7f;
-        enemy.spawnTimer = kind == RpgRules.ENEMY_BOSS ? 1.1f : 0.58f;
+        enemy.spawnTimer = kind == RpgRules.ENEMY_BOSS ? 0.88f
+                : enemy.elite ? 0.64f : 0.42f;
         enemies.add(enemy);
         remainingToSpawn--;
         spawnSerial++;
-        addBurst(enemy.x, GROUND_Y - 55f,
-                kind == RpgRules.ENEMY_BOSS ? GOLD : VIOLET,
-                kind == RpgRules.ENEMY_BOSS ? 34 : 16, 155f);
+        int spawnColor = kind == RpgRules.ENEMY_BOSS
+                ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : VIOLET;
+        addBurst(enemy.x, GROUND_Y - 55f, spawnColor,
+                kind == RpgRules.ENEMY_BOSS ? 34 : enemy.elite ? 26 : 16, 155f);
         if (kind == RpgRules.ENEMY_BOSS) {
             screenShake = 10f;
-            showToast("지역 보스 · " + ENEMY_NAMES[kind], 2.2f);
+            showToast("지역 보스 · " + bossName(enemy.bossVariant), 2.4f);
+            bossIntroName = bossName(enemy.bossVariant);
+            bossIntroColor = bossAccentColor(enemy.bossVariant);
+            bossIntroVariant = enemy.bossVariant;
+            bossIntroDuration = 2.05f;
+            bossIntroTimer = bossIntroDuration;
+            waveBannerTimer = 0f;
+            hitStop = Math.max(hitStop, 0.10f);
+            cameraZoomPulse = Math.max(cameraZoomPulse, 0.035f);
+            skillBloom = Math.max(skillBloom, 0.72f);
+            addImpactEffect(enemy.x,
+                    BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant),
+                    enemy.facing, ImpactAnimationRules.STYLE_FINISHER);
+        } else if (enemy.elite) {
+            screenShake = Math.max(screenShake, 4f);
+            showToast("정예 출현 · " + ENEMY_NAMES[kind], 2f);
         }
     }
 
@@ -725,15 +1402,35 @@ public final class GameView extends View {
             }
         } else {
             float healthRatio = enemy.health / Math.max(1f, enemy.maxHealth);
-            if (distance > 152f) {
-                float speed = healthRatio < 0.45f ? 102f : 78f;
+            float preferredDistance = enemy.bossVariant == 1 ? 188f
+                    : enemy.bossVariant == 2 ? 174f : 152f;
+            if (distance > preferredDistance) {
+                float baseSpeed = enemy.bossVariant == 2 ? 106f
+                        : enemy.bossVariant == 1 ? 92f : 78f;
+                float speed = enemy.phaseTriggered ? baseSpeed * 1.28f : baseSpeed;
                 enemy.velocity = approach(enemy.velocity, enemy.facing * speed, 430f * dt);
             } else {
                 enemy.velocity = approach(enemy.velocity, 0f, 600f * dt);
             }
             if (enemy.cooldown <= 0f) {
                 float roll = random.nextFloat();
-                if (healthRatio < 0.62f && roll < 0.28f) {
+                if (enemy.bossVariant == 1) {
+                    if ((healthRatio < 0.68f && roll < 0.34f) || roll < 0.18f) {
+                        startEnemyAction(enemy, ENEMY_NOVA, 1.18f, 0.80f);
+                    } else if (distance > 205f || roll < 0.66f) {
+                        startEnemyAction(enemy, ENEMY_PHASE, 0.82f, 0.48f);
+                    } else {
+                        startEnemyAction(enemy, ENEMY_HEAVY, 0.96f, 0.60f);
+                    }
+                } else if (enemy.bossVariant == 2) {
+                    if ((healthRatio < 0.76f && roll < 0.38f) || roll < 0.20f) {
+                        startEnemyAction(enemy, ENEMY_NOVA, 1.10f, 0.74f);
+                    } else if (roll < 0.60f) {
+                        startEnemyAction(enemy, ENEMY_RANGED, 0.86f, 0.50f);
+                    } else {
+                        startEnemyAction(enemy, ENEMY_PHASE, 0.70f, 0.40f);
+                    }
+                } else if (healthRatio < 0.62f && roll < 0.28f) {
                     startEnemyAction(enemy, ENEMY_NOVA, 1.26f, 0.88f);
                 } else if (distance > 180f || roll < 0.48f) {
                     startEnemyAction(enemy, ENEMY_RANGED, 0.96f, 0.58f);
@@ -761,8 +1458,8 @@ public final class GameView extends View {
             executeEnemyAction(enemy);
         }
         if (enemy.actionTimer <= 0f) {
-            float haste = enemy.kind == RpgRules.ENEMY_BOSS
-                    && enemy.health < enemy.maxHealth * 0.45f ? 0.72f : 1f;
+            float haste = enemy.kind == RpgRules.ENEMY_BOSS && enemy.phaseTriggered
+                    ? 0.62f : enemy.elite ? 0.82f : 1f;
             enemy.cooldown = (0.72f + random.nextFloat() * 0.62f) * haste;
             enemy.actionType = 0;
         }
@@ -772,6 +1469,9 @@ public final class GameView extends View {
         boolean heavy = enemy.actionType == ENEMY_HEAVY || enemy.actionType == ENEMY_NOVA;
         int damage = RpgRules.enemyDamage(enemy.kind, progress.region, progress.wave,
                 progress.level, progress.chapterClears, heavy);
+        if (enemy.elite) {
+            damage = RpgRules.eliteDamage(damage);
+        }
         if (enemy.actionType == ENEMY_MELEE) {
             if (Math.abs(hero.x - enemy.x) <= 116f) {
                 damageHero(damage, enemy.x, 128f);
@@ -789,14 +1489,18 @@ public final class GameView extends View {
             projectile.enemyOwned = true;
             projectile.kind = enemy.kind == RpgRules.ENEMY_BOSS ? 2 : 1;
             projectile.x = enemy.x + enemy.facing * 48f;
-            projectile.y = GROUND_Y - 108f;
+            projectile.previousX = projectile.x;
+            projectile.y = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 108f;
             projectile.velocityX = enemy.facing
                     * (enemy.kind == RpgRules.ENEMY_BOSS ? 365f : 315f);
             projectile.damage = damage;
             projectile.life = 2.1f;
+            projectile.maxLife = projectile.life;
             projectile.radius = enemy.kind == RpgRules.ENEMY_BOSS ? 34f : 24f;
             projectile.pierce = 1;
-            projectile.color = enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : VIOLET;
+            projectile.color = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : VIOLET;
             projectiles.add(projectile);
             addBurst(projectile.x, projectile.y, projectile.color, 10, 120f);
         } else if (enemy.actionType == ENEMY_PHASE) {
@@ -804,7 +1508,12 @@ public final class GameView extends View {
             enemy.x = RpgRules.clamp(hero.x + side * 82f,
                     RpgRules.ARENA_LEFT, RpgRules.ARENA_RIGHT);
             enemy.facing = hero.x >= enemy.x ? 1 : -1;
-            addBurst(enemy.x, GROUND_Y - 94f, VIOLET, 20, 190f);
+            int phaseColor = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : VIOLET;
+            addBurst(enemy.x, enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant)
+                    : GROUND_Y - 94f,
+                    phaseColor, 20, 190f);
             if (Math.abs(hero.x - enemy.x) <= 112f) {
                 damageHero(damage, enemy.x, 150f);
             }
@@ -813,6 +1522,11 @@ public final class GameView extends View {
                 damageHero(damage, enemy.x, 230f);
             }
             addNovaBurst(enemy.x, GROUND_Y - 82f, 255f);
+            if (enemy.kind == RpgRules.ENEMY_BOSS) {
+                addBurst(enemy.x,
+                        BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant),
+                        bossAccentColor(enemy.bossVariant), 34, 280f);
+            }
             screenShake = Math.max(screenShake, 15f);
         }
     }
@@ -830,10 +1544,11 @@ public final class GameView extends View {
                 }
                 float difference = b.x - a.x;
                 float distance = Math.abs(difference);
-                if (distance < 58f) {
+                float minimumDistance = BossPresentationMetrics.enemySpacing(a.kind, b.kind);
+                if (distance < minimumDistance) {
                     float direction = difference == 0f ? (second % 2 == 0 ? 1f : -1f)
                             : Math.signum(difference);
-                    float push = (58f - distance) * 0.5f;
+                    float push = (minimumDistance - distance) * 0.5f;
                     a.x -= direction * push;
                     b.x += direction * push;
                 }
@@ -846,9 +1561,10 @@ public final class GameView extends View {
                 }
                 float difference = enemy.x - hero.x;
                 float distance = Math.abs(difference);
-                if (distance < 58f) {
+                float minimumDistance = BossPresentationMetrics.heroSpacing(enemy.kind);
+                if (distance < minimumDistance) {
                     float direction = difference == 0f ? hero.facing : Math.signum(difference);
-                    float push = (58f - distance) * 0.5f;
+                    float push = (minimumDistance - distance) * 0.5f;
                     hero.x -= direction * push;
                     enemy.x += direction * push;
                 }
@@ -860,12 +1576,57 @@ public final class GameView extends View {
         }
     }
 
+    private void recenterCombat(float dt) {
+        float shift = RpgRules.combatRecenteringShift(hero.x, dt);
+        if (shift <= 0f) {
+            return;
+        }
+        hero.x -= shift;
+        hero.previousX -= shift;
+        for (Enemy enemy : enemies) {
+            enemy.x = Math.max(RpgRules.ARENA_LEFT, enemy.x - shift);
+            enemy.previousX = Math.max(RpgRules.ARENA_LEFT, enemy.previousX - shift);
+        }
+        for (Projectile projectile : projectiles) {
+            projectile.x -= shift;
+            projectile.previousX -= shift;
+        }
+        for (Particle particle : particles) {
+            particle.x -= shift;
+        }
+        for (FloatingText floatingText : floatingTexts) {
+            floatingText.x -= shift;
+        }
+        for (SkillEffect effect : skillEffects) {
+            effect.x -= shift;
+            effect.targetX -= shift;
+        }
+        for (ImpactEffect effect : impactEffects) {
+            effect.x -= shift;
+        }
+        if (impactX > 0f) {
+            impactX -= shift;
+        }
+    }
+
     private void updateProjectiles(float dt) {
         Iterator<Projectile> iterator = projectiles.iterator();
         while (iterator.hasNext()) {
             Projectile projectile = iterator.next();
+            projectile.previousX = projectile.x;
             projectile.x += projectile.velocityX * dt;
             projectile.life -= dt;
+            projectile.trailTimer -= dt;
+            if (!projectile.enemyOwned && projectile.kind == 0 && projectile.trailTimer <= 0f) {
+                projectile.trailTimer = 0.018f;
+                float direction = Math.signum(projectile.velocityX);
+                addStreakParticle(projectile.x - direction * 34f,
+                        projectile.y + (random.nextFloat() - 0.5f) * 24f,
+                        -direction * (75f + random.nextFloat() * 80f),
+                        (random.nextFloat() - 0.5f) * 55f,
+                        random.nextInt(5) == 0 ? GOLD : CRIMSON,
+                        3f + random.nextFloat() * 3f, 0.24f, 0f);
+            }
             boolean remove = projectile.life <= 0f
                     || projectile.x < -90f || projectile.x > LOGICAL_WIDTH + 90f;
             if (!remove && projectile.enemyOwned) {
@@ -883,6 +1644,12 @@ public final class GameView extends View {
                     if (Math.abs(projectile.x - enemy.x) <= projectile.radius + 34f) {
                         projectile.hitIds.add(enemy.id);
                         damageEnemy(enemy, projectile.damage, 115f, true);
+                        if (!projectile.enemyOwned && projectile.kind == 0) {
+                            addSkillEffect(FX_SPEAR_IMPACT, projectile.x, projectile.y,
+                                    projectile.x, projectile.y, CRIMSON,
+                                    0.34f, 92f, Math.signum(projectile.velocityX));
+                            skillBloom = Math.max(skillBloom, 0.5f);
+                        }
                         projectile.pierce--;
                         if (projectile.pierce <= 0) {
                             remove = true;
@@ -903,16 +1670,47 @@ public final class GameView extends View {
         }
         int applied = Math.max(1, amount);
         enemy.health = Math.max(0f, enemy.health - applied);
-        enemy.hurtTimer = heavy ? 0.23f : 0.14f;
-        enemy.invulnerability = 0.04f;
+        boolean killed = enemy.health <= 0f;
+        hitCombo = hitComboTimer > 0f ? hitCombo + 1 : 1;
+        hitComboTimer = 1.35f;
+        hitComboPulse = 1f;
+        if (!killed && enemy.kind == RpgRules.ENEMY_BOSS && !enemy.phaseTriggered
+                && enemy.health <= enemy.maxHealth * 0.55f) {
+            enemy.phaseTriggered = true;
+            enemy.invulnerability = 0.22f;
+            enemy.cooldown = 0.08f;
+            addNovaBurst(enemy.x,
+                    BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant), 190f);
+            addBurst(enemy.x,
+                    BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant),
+                    bossAccentColor(enemy.bossVariant), 42, 310f);
+            addImpactEffect(enemy.x,
+                    BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant),
+                    enemy.x >= hero.x ? 1f : -1f,
+                    ImpactAnimationRules.STYLE_FINISHER);
+            skillBloom = Math.max(skillBloom, 0.82f);
+            screenShake = Math.max(screenShake, 5f);
+            showToast(bossName(enemy.bossVariant) + " · 2페이즈", 2.2f);
+        }
+        enemy.hurtTimer = heavy || killed ? 0.27f : 0.16f;
+        enemy.invulnerability = Math.max(enemy.invulnerability, 0.04f);
         float direction = enemy.x >= hero.x ? 1f : -1f;
-        enemy.velocity += direction * knockback;
-        floatingTexts.add(new FloatingText(enemy.x, GROUND_Y - 210f,
-                "-" + applied, heavy ? GOLD : Color.WHITE, 0.9f));
-        addBurst(enemy.x, GROUND_Y - 106f, CRIMSON, heavy ? 18 : 10, heavy ? 230f : 155f);
-        screenShake = Math.max(screenShake, heavy ? 9f : 4f);
-        hitStop = Math.max(hitStop, heavy ? 0.055f : 0.025f);
-        if (enemy.health <= 0f) {
+        enemy.velocity += direction * knockback * (killed ? 1.32f : heavy ? 1.18f : 1f);
+        if (heroAction == ACTION_ATTACK) {
+            float followThrough = comboIndex == 2 ? 390f : 325f;
+            hero.velocity = direction * Math.max(Math.abs(hero.velocity), followThrough);
+        }
+        float damageTextY = enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.healthBarY(GROUND_Y) - 18f : GROUND_Y - 210f;
+        int damageStyle = killed ? 3 : heavy ? 2 : 1;
+        floatingTexts.add(new FloatingText(enemy.x, damageTextY,
+                formatNumber(applied), killed ? Color.WHITE : heavy ? GOLD : Color.WHITE,
+                killed ? 1.08f : 0.9f, damageStyle));
+        float impactY = enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.torsoY(GROUND_Y) : GROUND_Y - 104f;
+        addBurst(enemy.x, impactY, CRIMSON, heavy ? 18 : 10, heavy ? 230f : 155f);
+        registerEnemyImpact(enemy.x, impactY, direction, heavy, killed);
+        if (killed) {
             enemy.dead = true;
             enemy.deadTimer = enemy.kind == RpgRules.ENEMY_BOSS ? 1.15f : 0.68f;
             enemy.actionTimer = 0f;
@@ -933,11 +1731,10 @@ public final class GameView extends View {
         float direction = hero.x >= sourceX ? 1f : -1f;
         hero.velocity = direction * knockback;
         damageFlash = Math.min(1f, damageFlash + 0.72f);
-        screenShake = Math.max(screenShake, 11f);
-        hitStop = Math.max(hitStop, 0.06f);
         floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 230f,
                 "-" + amount, Color.rgb(255, 104, 120), 1f));
         addBurst(hero.x, GROUND_Y - 108f, CRIMSON, 18, 210f);
+        registerHeroImpact(hero.x, GROUND_Y - 110f, direction);
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         if (heroHealth <= 0f) {
             hero.dead = true;
@@ -945,6 +1742,42 @@ public final class GameView extends View {
             hero.velocity = direction * 170f;
             resetPointers();
         }
+    }
+
+    private void registerEnemyImpact(float x, float y, float direction,
+                                     boolean heavy, boolean killed) {
+        boolean major = heavy || killed;
+        impactX = x;
+        impactY = y;
+        impactDirection = direction;
+        impactHeavy = major;
+        impactFlash = Math.max(impactFlash, killed ? 1f : heavy ? 0.82f : 0.48f);
+        cameraKickX = -direction * (killed ? 17f : heavy ? 11f : 5f);
+        cameraKickY = major ? -5f : -2f;
+        screenShake = Math.max(screenShake, killed ? 16f : heavy ? 11f : 5.5f);
+        hitStop = Math.max(hitStop, killed ? 0.072f : heavy ? 0.048f : 0.022f);
+        addImpactBurst(x, y, direction, major ? 22 : 12, major ? 320f : 210f);
+        addImpactEffect(x, y, direction, killed ? ImpactAnimationRules.STYLE_FINISHER
+                : heavy ? ImpactAnimationRules.STYLE_HEAVY
+                : ImpactAnimationRules.STYLE_NORMAL);
+        audio.playHit(heavy, killed, comboIndex);
+        performHapticFeedback(major
+                ? HapticFeedbackConstants.LONG_PRESS : HapticFeedbackConstants.VIRTUAL_KEY);
+    }
+
+    private void registerHeroImpact(float x, float y, float direction) {
+        impactX = x;
+        impactY = y;
+        impactDirection = direction;
+        impactHeavy = true;
+        impactFlash = Math.max(impactFlash, 0.88f);
+        cameraKickX = -direction * 13f;
+        cameraKickY = -5f;
+        screenShake = Math.max(screenShake, 13f);
+        hitStop = Math.max(hitStop, 0.06f);
+        addImpactBurst(x, y, direction, 20, 280f);
+        addImpactEffect(x, y, direction, ImpactAnimationRules.STYLE_HEAVY);
+        audio.playPlayerHurt();
     }
 
     private void rewardEnemy(Enemy enemy) {
@@ -956,19 +1789,38 @@ public final class GameView extends View {
                 progress.chapterClears);
         int gold = RpgRules.goldReward(enemy.kind, progress.region, progress.wave,
                 progress.chapterClears);
+        if (enemy.elite) {
+            xp = RpgRules.eliteReward(xp);
+            gold = RpgRules.eliteReward(gold);
+        }
+        huntChain = huntChainTimer > 0f ? huntChain + 1 : 1;
+        huntChainTimer = 3.2f;
+        int chainBonus = RpgRules.huntChainBonusGold(huntChain, gold);
         progress.xp += xp;
-        progress.gold += gold;
+        progress.gold += gold + chainBonus;
         progress.kills++;
         defeatedThisWave++;
+        if (!midpointNarrativeShown
+                && defeatedThisWave >= Math.max(1, waveTarget / 2)
+                && queueCombatNarrative(
+                CombatStory.midpoint(progress.region, progress.wave), 0.42f)) {
+            midpointNarrativeShown = true;
+        }
         heroBlood = Math.min(heroMaxBlood, heroBlood + 7f);
         floatingTexts.add(new FloatingText(enemy.x, GROUND_Y - 260f,
                 "+" + xp + " XP  ·  +" + gold + " G", GOLD, 1.35f));
+        if (chainBonus > 0) {
+            floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 300f,
+                    huntChain + " CHAIN  ·  +" + chainBonus + " G", CYAN, 1.5f));
+            showToast("사냥 연쇄 " + huntChain + " · 보너스 +" + chainBonus, 1.8f);
+        }
         gainLevels();
-        rollEquipment(enemy.kind == RpgRules.ENEMY_BOSS);
+        rollEquipment(enemy.kind == RpgRules.ENEMY_BOSS, enemy.elite);
         markSaveDirty();
     }
 
     private void gainLevels() {
+        int previousLevel = progress.level;
         boolean leveled = false;
         while (progress.level < RpgRules.LEVEL_CAP
                 && progress.xp >= RpgRules.xpForNextLevel(progress.level)) {
@@ -987,19 +1839,31 @@ public final class GameView extends View {
             heroHealth = Math.min(heroMaxHealth, heroHealth + heroMaxHealth * 0.38f);
             heroBlood = heroMaxBlood;
             levelBannerText = "LEVEL UP  ·  " + progress.level;
-            if (previousSiphon == 0 && progress.siphonLevel > 0) {
+            if (previousLevel < 15 && progress.level >= 15) {
+                levelBannerText = "개기월식 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 12 && progress.level >= 12) {
+                levelBannerText = "진홍기둥 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 9 && progress.level >= 9) {
+                levelBannerText = "혈사슬 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 6 && progress.level >= 6) {
+                levelBannerText = "적월검우 해금  ·  LEVEL " + progress.level;
+            } else if (previousLevel < 3 && progress.level >= 3) {
+                levelBannerText = "혈영쇄도 해금  ·  LEVEL " + progress.level;
+            } else if (previousSiphon == 0 && progress.siphonLevel > 0) {
                 levelBannerText = "흡혈 해금  ·  LEVEL " + progress.level;
             } else if (previousNova == 0 && progress.novaLevel > 0) {
                 levelBannerText = "혈월 폭발 해금  ·  LEVEL " + progress.level;
             }
             levelBannerTimer = 2.8f;
             addNovaBurst(hero.x, GROUND_Y - 100f, 210f);
+            audio.playLevelUp();
             saveNow();
         }
     }
 
-    private void rollEquipment(boolean bossDrop) {
-        float chance = bossDrop ? 1f : 0.13f + progress.region * 0.035f;
+    private void rollEquipment(boolean bossDrop, boolean eliteDrop) {
+        float chance = bossDrop ? 1f : eliteDrop ? 0.62f
+                : 0.13f + progress.region * 0.035f;
         if (random.nextFloat() > chance) {
             return;
         }
@@ -1007,29 +1871,34 @@ public final class GameView extends View {
         int rarity = roll > 0.97f ? 3 : roll > 0.84f ? 2 : roll > 0.52f ? 1 : 0;
         if (bossDrop) {
             rarity = Math.max(1, rarity);
+        } else if (eliteDrop) {
+            rarity = Math.max(random.nextFloat() < 0.28f ? 2 : 1, rarity);
         }
         int power = RpgRules.equipmentPower(progress.region, progress.wave, progress.level,
                 rarity, progress.chapterClears);
         int slot = random.nextInt(3);
-        int current = slot == 0 ? progress.weaponPower
-                : slot == 1 ? progress.armorPower : progress.relicPower;
-        String slotName = slot == 0 ? "무기" : slot == 1 ? "갑옷" : "혈석";
+        int current = equippedPower(slot);
+        int item = makeItemCode(slot, rarity, power);
         if (power > current) {
-            if (slot == 0) {
-                progress.weaponPower = power;
-            } else if (slot == 1) {
-                progress.armorPower = power;
-            } else {
-                progress.relicPower = power;
+            if (current > 0) {
+                int replaced = makeItemCode(slot, rarityFromPower(current), current);
+                if (!stashItem(replaced)) {
+                    progress.gold += salvageValue(replaced);
+                }
             }
+            setEquippedPower(slot, power);
             syncHeroStats(false);
-            showToast(rarityName(rarity) + " " + slotName + " 획득  ·  전투력 +" + power, 2.4f);
+            showToast(rarityName(rarity) + " " + slotName(slot)
+                    + " 자동 장착  ·  +" + power, 2.4f);
             floatingTexts.add(new FloatingText(hero.x, GROUND_Y - 310f,
                     "장비 교체!", rarityColor(rarity), 1.6f));
+        } else if (stashItem(item)) {
+            showToast(rarityName(rarity) + " " + slotName(slot) + " 가방 보관", 1.8f);
         } else {
-            int salvage = Math.max(8, power * 2);
+            int salvage = salvageValue(item);
             progress.gold += salvage;
-            showToast(slotName + " 분해  ·  +" + salvage + " 골드", 1.6f);
+            showToast("가방이 가득 차 " + slotName(slot) + " 자동 분해  ·  +"
+                    + salvage + " 골드", 2f);
         }
         saveNow();
     }
@@ -1049,6 +1918,8 @@ public final class GameView extends View {
     private void advanceAdventure() {
         if (progress.wave < RpgRules.WAVES_PER_REGION) {
             progress.wave++;
+            saveNow();
+            startCurrentWave(false);
         } else {
             progress.bossKills++;
             if (progress.region < RpgRules.REGION_COUNT - 1) {
@@ -1057,20 +1928,18 @@ public final class GameView extends View {
                 chapterBannerTimer = 3.2f;
                 levelBannerText = "새 지역 해금  ·  " + REGION_NAMES[progress.region];
                 levelBannerTimer = 3.2f;
+                saveNow();
+                openStory(progress.region, true, false);
             } else {
                 progress.chapterClears++;
-                progress.region = 0;
-                progress.wave = 1;
-                chapterBannerTimer = 4f;
-                levelBannerText = "밤의 순환 " + (progress.chapterClears + 1) + "단계";
-                levelBannerTimer = 4f;
+                saveNow();
+                openStory(3, false, true);
             }
         }
-        saveNow();
-        startCurrentWave(false);
     }
 
     private void startNewAdventure() {
+        audio.playUiTap();
         progressStore.clear();
         progress = RpgProgress.fresh();
         continueAvailable = true;
@@ -1079,41 +1948,147 @@ public final class GameView extends View {
     }
 
     private void continueAdventure() {
+        audio.playUiTap();
+        long nowEpochSeconds = System.currentTimeMillis() / 1000L;
+        long lastActiveEpochSeconds = progressStore.lastActiveEpochSeconds();
         RpgProgress loaded = progressStore.load();
         progress = loaded == null ? RpgProgress.fresh() : loaded;
         progress.normalizeUnlocks();
         beginAdventure();
+        if (loaded != null) {
+            applyOfflineRewards(RpgRules.offlineElapsedSeconds(
+                    lastActiveEpochSeconds, nowEpochSeconds));
+        }
+    }
+
+    private void applyOfflineRewards(int elapsedSeconds) {
+        if (elapsedSeconds < 60) {
+            return;
+        }
+        offlineElapsedSeconds = elapsedSeconds;
+        offlineGoldReward = RpgRules.offlineGoldReward(elapsedSeconds,
+                progress.level, progress.region, progress.wave);
+        offlineXpReward = RpgRules.offlineXpReward(elapsedSeconds,
+                progress.level, progress.region, progress.wave);
+        int previousLevel = progress.level;
+        progress.gold = (int) Math.min(100_000_000L,
+                (long) progress.gold + offlineGoldReward);
+        progress.xp = (int) Math.min(9_999_999L,
+                (long) progress.xp + offlineXpReward);
+        gainLevels();
+        offlineLevelsGained = progress.level - previousLevel;
+        offlineReturnScreen = screen;
+        screen = Screen.OFFLINE_REWARD;
+        resetPointers();
+        saveNow();
+    }
+
+    private void claimOfflineRewards() {
+        audio.playUiTap();
+        screen = offlineReturnScreen;
+        offlineElapsedSeconds = 0;
+        offlineGoldReward = 0;
+        offlineXpReward = 0;
+        offlineLevelsGained = 0;
+        resetPointers();
+        lastFrameNanos = System.nanoTime();
     }
 
     private void beginAdventure() {
         ensureCombatAtlases();
-        hero.reset(275f, 1);
+        hero.reset(190f, 1);
         syncHeroStats(true);
         spearCooldown = 0f;
         siphonCooldown = 0f;
         novaCooldown = 0f;
-        screen = Screen.PLAYING;
-        lastFrameNanos = System.nanoTime();
-        startCurrentWave(true);
+        rushCooldown = 0f;
+        rainCooldown = 0f;
+        chainCooldown = 0f;
+        pillarCooldown = 0f;
+        eclipseCooldown = 0f;
+        autoSkillThinkTimer = 0f;
+        worldTravel = 0f;
+        openStory(progress.region, true, false);
+    }
+
+    private void openStory(int chapter, boolean fullRestore, boolean finale) {
+        storyChapter = RpgRules.clamp(chapter, 0, STORY_LINES.length - 1);
+        storyLine = 0;
+        storyStartsWave = !finale;
+        storyFullRestore = fullRestore;
+        storyFinale = finale;
+        screen = Screen.STORY;
+        resetPointers();
+    }
+
+    private void advanceStory() {
+        if (screen != Screen.STORY) {
+            return;
+        }
+        audio.playUiTap();
+        storyLine++;
+        if (storyLine < STORY_LINES[storyChapter].length) {
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            return;
+        }
+        if (storyFinale) {
+            progress.region = 0;
+            progress.wave = 1;
+            saveNow();
+            screen = Screen.TITLE;
+            continueAvailable = true;
+            return;
+        }
+        if (storyStartsWave) {
+            screen = Screen.PLAYING;
+            lastFrameNanos = System.nanoTime();
+            startCurrentWave(storyFullRestore);
+        }
     }
 
     private void startCurrentWave(boolean fullRestore) {
         enemies.clear();
         projectiles.clear();
+        particles.clear();
+        skillEffects.clear();
+        impactEffects.clear();
         floatingTexts.clear();
         remainingToSpawn = RpgRules.waveEnemyCount(progress.region, progress.wave);
         waveTarget = remainingToSpawn;
         defeatedThisWave = 0;
+        huntChain = 0;
+        huntChainTimer = 0f;
+        hitCombo = 0;
+        hitComboTimer = 0f;
+        hitComboPulse = 0f;
+        bossIntroTimer = 0f;
+        skillCalloutTimer = 0f;
+        combatNarrativeTimer = 0f;
+        combatNarrativeDuration = 0f;
+        combatNarrativeDelay = 0f;
+        combatNarrativeSpeaker = "";
+        combatNarrativeLine = "";
+        pendingCombatNarrative = null;
+        midpointNarrativeShown = false;
         spawnSerial = 0;
         nextEnemyId = 1;
-        spawnTimer = 0.55f;
+        spawnTimer = 0.18f;
         waveComplete = false;
         waveClearTimer = 0f;
         waveBannerTimer = 2.2f;
+        queueCombatNarrative(CombatStory.opening(progress.region, progress.wave,
+                progress.chapterClears), 2.45f);
         hero.dead = false;
         hero.deadTimer = 0f;
         hero.invulnerability = 0.55f;
+        hero.x = 190f;
+        hero.previousX = hero.x;
+        hero.velocity = 0f;
+        hero.facing = 1;
         heroAction = ACTION_NONE;
+        queuedSkillAction = ACTION_NONE;
+        queuedSkillTimer = 0f;
+        autoSkillThinkTimer = 0.12f;
         comboQueued = false;
         if (fullRestore) {
             heroHealth = heroMaxHealth;
@@ -1126,7 +2101,7 @@ public final class GameView extends View {
 
     private void retryCurrentWave() {
         syncHeroStats(true);
-        hero.reset(275f, 1);
+        hero.reset(190f, 1);
         screen = Screen.PLAYING;
         lastFrameNanos = System.nanoTime();
         startCurrentWave(true);
@@ -1216,6 +2191,7 @@ public final class GameView extends View {
         syncHeroStats(false);
         showToast("강화 완료  ·  전투력이 상승했습니다", 1.5f);
         addBurst(hero.x, GROUND_Y - 110f, GOLD, 20, 175f);
+        audio.playUiTap();
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
         saveNow();
     }
@@ -1274,12 +2250,95 @@ public final class GameView extends View {
         }
     }
 
+    private void updateSkillEffects(float dt) {
+        Iterator<SkillEffect> iterator = skillEffects.iterator();
+        while (iterator.hasNext()) {
+            SkillEffect effect = iterator.next();
+            effect.life -= dt;
+            if (effect.life <= 0f) {
+                iterator.remove();
+            }
+        }
+    }
+
+    private void updateImpactEffects(float dt) {
+        Iterator<ImpactEffect> iterator = impactEffects.iterator();
+        while (iterator.hasNext()) {
+            ImpactEffect effect = iterator.next();
+            effect.life -= dt;
+            if (effect.life <= 0f) {
+                iterator.remove();
+            }
+        }
+    }
+
+    private void updateCombatNarrative(float dt) {
+        if (bossIntroTimer > 0f) {
+            return;
+        }
+        if (combatNarrativeTimer > 0f) {
+            combatNarrativeTimer = Math.max(0f, combatNarrativeTimer - dt);
+        }
+        if (pendingCombatNarrative == null) {
+            return;
+        }
+        combatNarrativeDelay = Math.max(0f, combatNarrativeDelay - dt);
+        if (combatNarrativeDelay > 0f || combatNarrativeTimer > 0f) {
+            return;
+        }
+        combatNarrativeSpeaker = pendingCombatNarrative.speaker;
+        combatNarrativeLine = pendingCombatNarrative.line;
+        combatNarrativeDuration = 4.35f;
+        combatNarrativeTimer = combatNarrativeDuration;
+        pendingCombatNarrative = null;
+    }
+
+    private boolean queueCombatNarrative(CombatStory.Beat beat, float delay) {
+        if (beat == null || pendingCombatNarrative != null) {
+            return false;
+        }
+        pendingCombatNarrative = beat;
+        combatNarrativeDelay = Math.max(0f, delay)
+                + Math.max(0f, combatNarrativeTimer);
+        return true;
+    }
+
+    private static int narrativeAccent(String speaker) {
+        if (CombatStory.RIAN.equals(speaker)) {
+            return CYAN;
+        }
+        if (CombatStory.NOX.equals(speaker)) {
+            return VIOLET;
+        }
+        if (CombatStory.KAEL.equals(speaker)) {
+            return CRIMSON;
+        }
+        return GOLD;
+    }
+
+    private void addImpactEffect(float x, float y, float direction, int style) {
+        if (impactEffects.size() >= MAX_IMPACT_EFFECTS) {
+            impactEffects.remove(0);
+        }
+        ImpactEffect effect = new ImpactEffect();
+        effect.x = x + Math.signum(direction) * 7f;
+        effect.y = y;
+        effect.direction = direction < 0f ? -1f : 1f;
+        effect.style = RpgRules.clamp(style,
+                ImpactAnimationRules.STYLE_NORMAL, ImpactAnimationRules.STYLE_FINISHER);
+        effect.life = ImpactAnimationRules.duration(effect.style);
+        effect.maxLife = effect.life;
+        float rotationRange = effect.style == ImpactAnimationRules.STYLE_FINISHER ? 4f : 10f;
+        effect.rotation = (random.nextFloat() - 0.5f) * rotationRange;
+        impactEffects.add(effect);
+    }
+
     private void updateFloatingTexts(float dt) {
         Iterator<FloatingText> iterator = floatingTexts.iterator();
         while (iterator.hasNext()) {
             FloatingText floatingText = iterator.next();
             floatingText.life -= dt;
-            floatingText.y -= dt * 42f;
+            floatingText.y -= dt * (42f + floatingText.emphasis * 8f);
             if (floatingText.life <= 0f) {
                 iterator.remove();
             }
@@ -1300,13 +2359,15 @@ public final class GameView extends View {
         for (int index = 0; index < 16 && particles.size() < MAX_PARTICLES; index++) {
             float angle = (direction > 0 ? -1.15f : 1.99f) + index * 0.095f;
             float magnitude = 175f + index * 4f;
-            addParticle(x, y, (float) Math.cos(angle) * magnitude,
+            addStreakParticle(x, y, (float) Math.cos(angle) * magnitude,
                     (float) Math.sin(angle) * magnitude, color,
                     3f + index * 0.16f, 0.26f + index * 0.012f, 70f);
         }
     }
 
     private void addBloodTether(float fromX, float fromY, float toX, float toY) {
+        addSkillEffect(FX_TETHER, fromX, fromY, toX, toY,
+                CRIMSON, 0.48f, Math.abs(toX - fromX), Math.signum(toX - fromX));
         for (int index = 0; index < 22 && particles.size() < MAX_PARTICLES; index++) {
             float fraction = index / 21f;
             float x = fromX + (toX - fromX) * fraction;
@@ -1318,13 +2379,48 @@ public final class GameView extends View {
     }
 
     private void addNovaBurst(float x, float y, float radius) {
-        for (int index = 0; index < 40 && particles.size() < MAX_PARTICLES; index++) {
-            float angle = index / 40f * (float) Math.PI * 2f;
+        for (int index = 0; index < 58 && particles.size() < MAX_PARTICLES; index++) {
+            float angle = index / 58f * (float) Math.PI * 2f;
             float speed = radius * (0.75f + random.nextFloat() * 0.55f);
-            addParticle(x, y, (float) Math.cos(angle) * speed,
+            addStreakParticle(x, y, (float) Math.cos(angle) * speed,
                     (float) Math.sin(angle) * speed * 0.58f,
                     index % 5 == 0 ? GOLD : CRIMSON,
                     4f + random.nextFloat() * 5f, 0.58f, 55f);
+        }
+    }
+
+    private void addBladeRainBurst(float x, float y) {
+        for (int index = 0; index < 24 && particles.size() < MAX_PARTICLES; index++) {
+            float spread = (random.nextFloat() - 0.5f) * 130f;
+            float speed = 330f + random.nextFloat() * 260f;
+            addStreakParticle(x + spread, y - 120f - random.nextFloat() * 120f,
+                    hero.facing * (65f + random.nextFloat() * 120f), speed,
+                    index % 5 == 0 ? Color.WHITE : index % 4 == 0 ? GOLD : CRIMSON,
+                    3f + random.nextFloat() * 4f, 0.28f + random.nextFloat() * 0.18f, 0f);
+        }
+    }
+
+    private void addFootstep(float x, float y) {
+        int dust = progress.region == 0 ? Color.rgb(124, 166, 190)
+                : progress.region == 1 ? Color.rgb(135, 104, 111) : Color.rgb(150, 119, 104);
+        for (int index = 0; index < 4; index++) {
+            addParticle(x + random.nextFloat() * 18f - 9f, y,
+                    -hero.facing * (18f + random.nextFloat() * 34f),
+                    -18f - random.nextFloat() * 30f, withAlpha(dust, 150),
+                    2f + random.nextFloat() * 2.5f, 0.28f, 58f);
+        }
+    }
+
+    private void addImpactBurst(float x, float y, float direction, int count, float speed) {
+        for (int index = 0; index < count && particles.size() < MAX_PARTICLES; index++) {
+            float angle = (random.nextFloat() - 0.5f) * 1.55f;
+            float velocity = speed * (0.45f + random.nextFloat() * 0.7f);
+            int color = index % 4 == 0 ? Color.WHITE : index % 5 == 0 ? GOLD : CRIMSON;
+            addStreakParticle(x, y,
+                    direction * (float) Math.cos(angle) * velocity,
+                    (float) Math.sin(angle) * velocity * 0.72f,
+                    color, 2.5f + random.nextFloat() * 4f,
+                    0.2f + random.nextFloat() * 0.24f, 85f);
         }
     }
 
@@ -1346,37 +2442,100 @@ public final class GameView extends View {
         particles.add(particle);
     }
 
+    private void addStreakParticle(float x, float y, float velocityX, float velocityY,
+                                   int color, float radius, float life, float gravity) {
+        if (particles.size() >= MAX_PARTICLES) {
+            return;
+        }
+        Particle particle = new Particle();
+        particle.x = x;
+        particle.y = y;
+        particle.velocityX = velocityX;
+        particle.velocityY = velocityY;
+        particle.color = color;
+        particle.radius = radius;
+        particle.life = life;
+        particle.maxLife = life;
+        particle.gravity = gravity;
+        particle.style = 1;
+        particles.add(particle);
+    }
+
+    private void addSkillEffect(int kind, float x, float y, float targetX, float targetY,
+                                int color, float life, float radius, float direction) {
+        if (skillEffects.size() >= 48) {
+            return;
+        }
+        SkillEffect effect = new SkillEffect();
+        effect.kind = kind;
+        effect.x = x;
+        effect.y = y;
+        effect.targetX = targetX;
+        effect.targetY = targetY;
+        effect.color = color;
+        effect.life = life;
+        effect.maxLife = life;
+        effect.radius = radius;
+        effect.direction = direction;
+        effect.seed = random.nextFloat() * 10f;
+        skillEffects.add(effect);
+    }
+
     private void drawScene(Canvas canvas) {
-        float shakeX = screenShake > 0f
-                ? (float) Math.sin(ambientClock * 84f) * screenShake : 0f;
-        float shakeY = screenShake > 0f
-                ? (float) Math.cos(ambientClock * 67f) * screenShake * 0.45f : 0f;
+        float comfortShake = Math.min(5.5f, screenShake * 0.24f);
+        float shakeX = cameraKickX * 0.42f + (comfortShake > 0f
+                ? (float) Math.sin(ambientClock * 61f) * comfortShake : 0f);
+        float shakeY = cameraKickY * 0.34f + (comfortShake > 0f
+                ? (float) Math.cos(ambientClock * 47f) * comfortShake * 0.22f : 0f);
         canvas.save();
         canvas.translate(shakeX, shakeY);
+        if (cameraZoomPulse > 0f) {
+            float pivotX = impactX > 1f ? impactX : LOGICAL_WIDTH * 0.5f;
+            float pivotY = impactY > 1f ? impactY : GROUND_Y - 100f;
+            float comfortZoom = cameraZoomPulse * 0.36f;
+            canvas.scale(1f + comfortZoom, 1f + comfortZoom, pivotX, pivotY);
+        }
         drawBackground(canvas);
-        if (screen != Screen.TITLE && screen != Screen.NEW_CONFIRM) {
+        if (screen == Screen.STORY || screen == Screen.OFFLINE_REWARD) {
+            drawStoryStage(canvas);
+        } else if (screen != Screen.TITLE && screen != Screen.NEW_CONFIRM) {
             drawArena(canvas);
         } else {
             drawTitleAtmosphere(canvas);
         }
         canvas.restore();
+        drawImpactFlash(canvas);
+        drawSkillBloom(canvas);
 
         if (screen == Screen.TITLE || screen == Screen.NEW_CONFIRM) {
             drawTitle(canvas);
             if (screen == Screen.NEW_CONFIRM) {
                 drawNewConfirm(canvas);
             }
+        } else if (screen == Screen.STORY) {
+            drawStory(canvas);
+        } else if (screen == Screen.OFFLINE_REWARD) {
+            drawOfflineReward(canvas);
         } else {
             drawHud(canvas);
             if (screen == Screen.PLAYING) {
                 drawControls(canvas);
+                drawSealRoadmap(canvas);
             }
             drawBanners(canvas);
+            if (screen == Screen.PLAYING) {
+                drawHitCounter(canvas);
+                drawCombatNarrative(canvas);
+                drawSkillCallout(canvas);
+                drawBossIntro(canvas);
+            }
             drawToast(canvas);
             if (screen == Screen.PAUSED) {
                 drawPause(canvas);
             } else if (screen == Screen.GROWTH) {
                 drawGrowth(canvas);
+            } else if (screen == Screen.INVENTORY) {
+                drawInventory(canvas);
             } else if (screen == Screen.DEFEAT) {
                 drawDefeat(canvas);
             }
@@ -1387,15 +2546,58 @@ public final class GameView extends View {
         }
     }
 
+    private void drawSkillBloom(Canvas canvas) {
+        if (skillBloom <= 0f || screen != Screen.PLAYING) {
+            return;
+        }
+        float centerX = heroRenderX();
+        float centerY = GROUND_Y - 100f;
+        int alpha = Math.round(92f * RpgRules.clamp(skillBloom, 0f, 1f));
+        paint.setShader(new RadialGradient(centerX, centerY, 330f,
+                new int[]{withAlpha(Color.WHITE, alpha), withAlpha(CRIMSON, alpha / 2),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.26f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(centerX, centerY, 330f, paint);
+        paint.setShader(null);
+    }
+
+    private void drawImpactFlash(Canvas canvas) {
+        if (impactFlash <= 0f || screen != Screen.PLAYING) {
+            return;
+        }
+        int alpha = Math.round(impactFlash * (impactHeavy ? 195f : 135f));
+        float radius = impactHeavy ? 112f : 72f;
+        paint.setShader(new RadialGradient(impactX, impactY, radius,
+                new int[]{withAlpha(Color.WHITE, alpha), withAlpha(GOLD, alpha / 2),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.2f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(impactX, impactY, radius, paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(impactHeavy ? 6f : 3f);
+        paint.setColor(withAlpha(Color.WHITE, Math.min(230, alpha)));
+        float spread = impactHeavy ? 94f : 58f;
+        for (int index = -2; index <= 2; index++) {
+            float angle = index * 0.25f;
+            float dx = impactDirection * (float) Math.cos(angle) * spread;
+            float dy = (float) Math.sin(angle) * spread * 0.65f;
+            canvas.drawLine(impactX + dx * 0.3f, impactY + dy * 0.3f,
+                    impactX + dx, impactY + dy, paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     private void drawBackground(Canvas canvas) {
         int region = progress == null ? 0 : RpgRules.clamp(progress.region, 0, 2);
         Bitmap background = obtainBackground(region);
         float parallax = screen == Screen.TITLE ? (float) Math.sin(ambientClock * 0.08f) * 8f
-                : (hero.x - LOGICAL_WIDTH * 0.5f) * 0.025f;
+                : -(worldTravel * 0.035f) % 24f;
         if (background != null && !background.isRecycled()) {
+            paint.setColorFilter(BACKGROUND_LIFT_FILTER);
             canvas.drawBitmap(background, null,
-                    new RectF(-12f - parallax, -2f, LOGICAL_WIDTH + 12f - parallax,
-                            LOGICAL_HEIGHT + 2f), paint);
+                    new RectF(-44f - parallax, -32f, LOGICAL_WIDTH + 44f - parallax,
+                            LOGICAL_HEIGHT + 32f), paint);
+            paint.setColorFilter(null);
         } else {
             int upper = region == 0 ? Color.rgb(10, 28, 55)
                     : region == 1 ? Color.rgb(39, 13, 31) : Color.rgb(31, 14, 24);
@@ -1409,10 +2611,33 @@ public final class GameView extends View {
             canvas.drawCircle(525f, 205f, 82f, paint);
         }
         paint.setShader(new LinearGradient(0f, 0f, 0f, LOGICAL_HEIGHT,
-                Color.argb(18, 4, 5, 14), Color.argb(100, 3, 4, 10), Shader.TileMode.CLAMP));
+                Color.argb(4, 4, 5, 14), Color.argb(42, 3, 4, 10), Shader.TileMode.CLAMP));
         canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
         drawAmbientMotes(canvas, region);
+        if (screen == Screen.PLAYING || screen == Screen.PAUSED || screen == Screen.GROWTH
+                || screen == Screen.INVENTORY) {
+            drawTravelingForeground(canvas, region);
+        }
+    }
+
+    private void drawTravelingForeground(Canvas canvas, int region) {
+        float roadOffset = -(worldTravel * 0.72f) % 168f;
+        int stoneColor = region == 0 ? Color.rgb(52, 70, 86)
+                : region == 1 ? Color.rgb(69, 50, 58) : Color.rgb(76, 53, 48);
+        paint.setColor(Color.argb(142, 14, 16, 24));
+        canvas.drawRect(0f, GROUND_Y + 18f, LOGICAL_WIDTH, 936f, paint);
+        for (int index = -1; index < 6; index++) {
+            float x = roadOffset + index * 168f;
+            paint.setColor(withAlpha(stoneColor, 185));
+            canvas.drawOval(new RectF(x, GROUND_Y + 24f, x + 118f, GROUND_Y + 52f), paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(Color.argb(90, 205, 220, 226));
+            canvas.drawArc(new RectF(x, GROUND_Y + 24f, x + 118f, GROUND_Y + 52f),
+                    188f, 148f, false, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
     }
 
     private void drawAmbientMotes(Canvas canvas, int region) {
@@ -1426,7 +2651,7 @@ public final class GameView extends View {
             float y = 270f + (index * 97f % 535f)
                     + (float) Math.sin(ambientClock * 0.7f + index) * 17f;
             float pulse = 0.45f + 0.35f * (float) Math.sin(ambientClock * 1.2f + index * 0.8f);
-            paint.setColor(withAlpha(color, Math.round(42f + pulse * 48f)));
+            paint.setColor(withAlpha(color, Math.round(66f + pulse * 62f)));
             canvas.drawCircle(x, y, 1.5f + (index % 3), paint);
         }
     }
@@ -1439,21 +2664,57 @@ public final class GameView extends View {
         drawVignette(canvas);
     }
 
+    private void drawStoryStage(Canvas canvas) {
+        paint.setShader(new LinearGradient(0f, 250f, 0f, LOGICAL_HEIGHT,
+                Color.argb(30, 4, 6, 14), Color.argb(232, 3, 4, 10), Shader.TileMode.CLAMP));
+        canvas.drawRect(0f, 190f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
+        paint.setShader(null);
+        drawFighterShadow(canvas, 200f, 0.9f, 48f);
+        float oldX = hero.x;
+        int oldFacing = hero.facing;
+        hero.x = 200f;
+        hero.facing = 1;
+        drawHero(canvas);
+        hero.x = oldX;
+        hero.facing = oldFacing;
+        drawVignette(canvas);
+    }
+
     private void drawArena(Canvas canvas) {
+        drawCombatVisibilityWash(canvas);
         drawGroundGlow(canvas);
+        drawCombatSpeedLines(canvas);
+        drawSkillEffects(canvas, false);
+        drawImpactEffects(canvas, false);
         for (Enemy enemy : enemies) {
             drawEnemyTelegraph(canvas, enemy);
         }
         for (Enemy enemy : enemies) {
-            drawFighterShadow(canvas, enemy.x, enemy.dead ? 0.3f : 0.85f,
-                    enemy.kind == RpgRules.ENEMY_BOSS ? 76f : 50f);
+            if (!enemy.dead) {
+                int glowColor = enemy.kind == RpgRules.ENEMY_BOSS
+                        ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : CYAN;
+                drawActorReadabilityGlow(canvas, enemyRenderX(enemy),
+                        glowColor, enemy.kind == RpgRules.ENEMY_BOSS
+                                ? BossPresentationMetrics.readabilityGlowRadius(
+                                        enemy.bossVariant)
+                                : enemy.elite ? 86f : 72f);
+            }
         }
-        drawFighterShadow(canvas, hero.x, hero.dead ? 0.35f : 1f, 58f);
+        drawActorReadabilityGlow(canvas, heroRenderX(), CRIMSON, 82f);
+        for (Enemy enemy : enemies) {
+            drawFighterShadow(canvas, enemyRenderX(enemy), enemy.dead ? 0.3f : 0.85f,
+                    enemy.kind == RpgRules.ENEMY_BOSS
+                            ? BossPresentationMetrics.shadowHalfWidth(enemy.bossVariant)
+                            : enemy.elite ? 39f : 32f);
+        }
+        drawFighterShadow(canvas, heroRenderX(), hero.dead ? 0.35f : 1f, 35f);
         for (Enemy enemy : enemies) {
             drawEnemy(canvas, enemy);
         }
         drawHero(canvas);
         drawProjectiles(canvas);
+        drawSkillEffects(canvas, true);
+        drawImpactEffects(canvas, true);
         drawParticles(canvas);
         drawFloatingTexts(canvas);
         drawVignette(canvas);
@@ -1461,9 +2722,53 @@ public final class GameView extends View {
 
     private void drawGroundGlow(Canvas canvas) {
         paint.setShader(new RadialGradient(LOGICAL_WIDTH * 0.5f, GROUND_Y + 18f, 330f,
-                Color.argb(62, 196, 24, 62), Color.TRANSPARENT, Shader.TileMode.CLAMP));
+                Color.argb(92, 112, 144, 168), Color.TRANSPARENT, Shader.TileMode.CLAMP));
         canvas.drawOval(new RectF(18f, GROUND_Y - 55f, LOGICAL_WIDTH - 18f, GROUND_Y + 88f), paint);
         paint.setShader(null);
+    }
+
+    private void drawCombatVisibilityWash(Canvas canvas) {
+        paint.setShader(new LinearGradient(0f, 300f, 0f, GROUND_Y + 50f,
+                Color.argb(8, 88, 112, 142), Color.argb(34, 105, 123, 148),
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(0f, 270f, LOGICAL_WIDTH, GROUND_Y + 54f, paint);
+        paint.setShader(null);
+    }
+
+    private void drawActorReadabilityGlow(Canvas canvas, float x, int color, float radius) {
+        paint.setColor(withAlpha(color, 18));
+        canvas.drawCircle(x, GROUND_Y - 72f, radius, paint);
+        paint.setColor(withAlpha(Color.WHITE, 13));
+        canvas.drawCircle(x, GROUND_Y - 72f, radius * 0.58f, paint);
+    }
+
+    private void drawCombatSpeedLines(Canvas canvas) {
+        float velocityIntensity = RpgRules.clamp((Math.abs(hero.velocity) - 150f) / 380f,
+                0f, 1f);
+        float actionIntensity = heroAction == ACTION_RUSH ? 1f
+                : heroAction == ACTION_ATTACK ? 0.48f : 0f;
+        float intensity = Math.max(velocityIntensity, actionIntensity);
+        if (intensity <= 0.02f || hero.dead) {
+            return;
+        }
+        float direction = Math.abs(hero.velocity) > 20f
+                ? Math.signum(hero.velocity) : hero.facing;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for (int index = 0; index < 18; index++) {
+            float phase = (ambientClock * (720f + index * 19f) + index * 83f)
+                    % (LOGICAL_WIDTH + 220f);
+            float x = direction > 0f ? LOGICAL_WIDTH + 110f - phase : -110f + phase;
+            float y = 326f + (index * 67f % 520f);
+            float length = (52f + index % 5 * 24f) * intensity;
+            paint.setStrokeWidth((index % 4 == 0 ? 4f : 2f) * intensity);
+            paint.setColor(withAlpha(index % 6 == 0 ? CYAN : Color.WHITE,
+                    Math.round((index % 4 == 0 ? 92f : 48f) * intensity)));
+            canvas.drawLine(x - direction * length, y + index % 3 * 3f,
+                    x + direction * 20f, y, paint);
+        }
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawFighterShadow(Canvas canvas, float x, float alpha, float width) {
@@ -1472,125 +2777,495 @@ public final class GameView extends View {
     }
 
     private void drawHero(Canvas canvas) {
-        int row;
-        int column;
+        float x = heroRenderX();
+        int firstRow = 1;
+        int firstColumn = 0;
+        int secondRow = firstRow;
+        int secondColumn = firstColumn;
+        float blend = 0f;
+        float lean = 0f;
+        float lunge = 0f;
+        float scaleX = 1f;
+        float scaleY = 1f;
+        float actionProgress = heroActionDuration <= 0f ? 0f
+                : RpgRules.clamp(1f - heroActionTimer / heroActionDuration, 0f, 1f);
         if (hero.dead) {
-            row = 3;
-            column = 3;
+            firstRow = secondRow = 3;
+            firstColumn = secondColumn = 3;
+            lean = hero.facing * 2f;
         } else if (hero.hurtTimer > 0f) {
-            row = 3;
-            column = 2;
-        } else if (heroAction != ACTION_NONE && heroAction != ACTION_ATTACK) {
-            row = 3;
-            column = heroAction == ACTION_SIPHON ? 1 : 0;
+            firstRow = secondRow = 3;
+            firstColumn = secondColumn = 2;
+            lean = -hero.facing * 7f * (hero.hurtTimer / 0.25f);
         } else if (heroAction == ACTION_ATTACK) {
-            row = 2;
-            column = comboIndex + 1;
+            if (comboIndex == 0) {
+                float contact = heroActionTrigger / Math.max(0.01f, heroActionDuration);
+                if (actionProgress < contact) {
+                    firstRow = 1;
+                    firstColumn = 0;
+                    secondRow = 2;
+                    secondColumn = 0;
+                    blend = easeOutCubic(actionProgress / Math.max(0.01f, contact));
+                } else {
+                    firstRow = 2;
+                    firstColumn = 0;
+                    secondRow = 2;
+                    secondColumn = 1;
+                    blend = easeOutCubic((actionProgress - contact)
+                            / Math.max(0.01f, 1f - contact));
+                }
+            } else if (comboIndex == 1) {
+                firstRow = secondRow = 2;
+                firstColumn = 1;
+                secondColumn = 2;
+                blend = easeOutCubic(actionProgress);
+            } else if (actionProgress < 0.72f) {
+                firstRow = secondRow = 2;
+                firstColumn = 2;
+                secondColumn = 3;
+                blend = easeOutCubic(actionProgress / 0.72f);
+            } else {
+                firstRow = 2;
+                firstColumn = 3;
+                secondRow = 1;
+                secondColumn = 0;
+                blend = smootherStep((actionProgress - 0.72f) / 0.28f);
+            }
+            float strikePulse = (float) Math.sin(Math.PI
+                    * RpgRules.clamp(actionProgress * 1.24f, 0f, 1f));
+            lunge = hero.facing * strikePulse * (comboIndex == 2 ? 31f : 23f);
+            lean = -hero.facing * (4f + strikePulse * (comboIndex == 2 ? 8f : 5f));
+            scaleX = 1f + strikePulse * 0.035f;
+            scaleY = 1f - strikePulse * 0.025f;
+        } else if (heroAction == ACTION_RUSH) {
+            firstRow = secondRow = 2;
+            firstColumn = actionProgress < 0.48f ? 1 : 2;
+            secondColumn = actionProgress < 0.48f ? 2 : 3;
+            blend = easeOutCubic(actionProgress < 0.48f
+                    ? actionProgress / 0.48f : (actionProgress - 0.48f) / 0.52f);
+            lunge = hero.facing * (10f + 16f
+                    * (float) Math.sin(actionProgress * Math.PI));
+            lean = -hero.facing * 10f;
+            scaleX = 1.08f;
+            scaleY = 0.92f;
         } else if (hero.dashTimer > 0f) {
-            row = 1;
-            column = 3;
+            float dashProgress = RpgRules.clamp(1f - hero.dashTimer / 0.19f, 0f, 1f);
+            firstRow = secondRow = 1;
+            if (dashProgress < 0.2f) {
+                firstColumn = 0;
+                secondColumn = 1;
+                blend = smootherStep(dashProgress / 0.2f);
+            } else if (dashProgress < 0.72f) {
+                firstColumn = 1;
+                secondColumn = 2;
+                blend = smootherStep((dashProgress - 0.2f) / 0.52f);
+            } else {
+                firstColumn = 2;
+                secondColumn = 3;
+                blend = smootherStep((dashProgress - 0.72f) / 0.28f);
+            }
+            lean = -hero.facing * (8f + 4f * (float) Math.sin(dashProgress * Math.PI));
+            scaleX = 1.065f;
+            scaleY = 0.94f;
+        } else if (heroAction != ACTION_NONE) {
+            int skillColumn = heroAction == ACTION_SPEAR || heroAction == ACTION_RAIN ? 0 : 1;
+            if (actionProgress < 0.3f) {
+                firstRow = 1;
+                firstColumn = 0;
+                secondRow = 3;
+                secondColumn = skillColumn;
+                blend = easeOutCubic(actionProgress / 0.3f);
+            } else if (actionProgress < 0.8f) {
+                firstRow = secondRow = 3;
+                firstColumn = secondColumn = skillColumn;
+            } else {
+                firstRow = 3;
+                firstColumn = skillColumn;
+                secondRow = 1;
+                secondColumn = 0;
+                blend = smootherStep((actionProgress - 0.8f) / 0.2f);
+            }
+            float castPulse = (float) Math.sin(Math.PI * actionProgress);
+            lean = hero.facing * (heroAction == ACTION_NOVA ? 1.5f : 3f) * castPulse;
+            scaleX = 1f - castPulse * 0.018f;
+            scaleY = 1f + castPulse * 0.028f;
         } else if (Math.abs(hero.velocity) > 24f) {
-            row = 0;
-            column = ((int) (hero.runDistance / 32f)) % 4;
+            float framePosition = hero.runDistance / 26f;
+            int baseFrame = (int) Math.floor(framePosition);
+            firstRow = secondRow = 0;
+            firstColumn = Math.floorMod(baseFrame, 4);
+            secondColumn = Math.floorMod(baseFrame + 1, 4);
+            blend = smootherStep(framePosition - (float) Math.floor(framePosition));
+            float gait = framePosition * (float) Math.PI * 0.5f;
+            scaleX = 1f + (float) Math.cos(gait * 2f) * 0.012f;
+            scaleY = 1f - (float) Math.cos(gait * 2f) * 0.012f;
+            lean = -hero.facing * 2.2f;
         } else {
-            row = 1;
-            column = 0;
+            float breath = (float) Math.sin(hero.animClock * 2.25f);
+            scaleX = 1f - breath * 0.006f;
+            scaleY = 1f + breath * 0.009f;
         }
-        float bob = hero.dead ? 0f : (float) Math.sin(ambientClock * 3.2f) * 2.2f;
-        float width = 248f;
-        float height = 248f;
-        RectF destination = new RectF(hero.x - width * 0.5f,
-                GROUND_Y - height + 21f + bob, hero.x + width * 0.5f, GROUND_Y + 21f + bob);
+
+        if (heroAction == ACTION_SPEAR || heroAction == ACTION_SIPHON
+                || heroAction == ACTION_NOVA || heroAction == ACTION_RAIN
+                || heroAction == ACTION_CHAIN || heroAction == ACTION_PILLAR
+                || heroAction == ACTION_ECLIPSE) {
+            drawHeroSkillCharge(canvas, x, actionProgress);
+        }
+        float width = 152f;
+        float height = 152f;
+        float drawX = x + lunge;
+        spriteDestination.set(drawX - width * 0.5f,
+                GROUND_Y - height + 8f, drawX + width * 0.5f, GROUND_Y + 8f);
         int alpha = hero.invulnerability > 0f
                 && ((int) (hero.invulnerability * 32f) & 1) == 0 ? 142 : 255;
-        if (hero.dashTimer > 0f) {
-            for (int trail = 4; trail >= 1; trail--) {
-                RectF trailRect = new RectF(destination);
-                trailRect.offset(-hero.facing * trail * 31f, 0f);
-                drawAtlasCell(canvas, heroAtlas, 4, 4, column, row, trailRect,
-                        hero.facing < 0, 16 + trail * 12, 4);
+        canvas.save();
+        canvas.rotate(lean, drawX, GROUND_Y + 5f);
+        canvas.scale(scaleX, scaleY, drawX, GROUND_Y + 7f);
+        boolean drawMotionTrail = hero.dashTimer > 0f || heroAction == ACTION_RUSH
+                || Math.abs(hero.velocity) > 315f;
+        if (drawMotionTrail) {
+            int trailCount = heroAction == ACTION_RUSH ? 6 : hero.dashTimer > 0f ? 4 : 2;
+            float spacing = heroAction == ACTION_RUSH ? 28f : hero.dashTimer > 0f ? 25f : 18f;
+            for (int trail = trailCount; trail >= 1; trail--) {
+                trailDestination.set(spriteDestination);
+                trailDestination.offset(-hero.facing * trail * spacing, 0f);
+                drawAtlasBlend(canvas, heroAtlas, 4, 4,
+                        firstColumn, firstRow, secondColumn, secondRow, blend,
+                        trailDestination, hero.facing > 0,
+                        Math.min(92, 12 + trail * 11), 4, false);
             }
         }
-        if (heroAction == ACTION_NOVA && heroActionTimer > 0f) {
-            float fraction = 1f - heroActionTimer / heroActionDuration;
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(5f);
-            paint.setColor(withAlpha(CRIMSON, Math.round(80f + fraction * 130f)));
-            canvas.drawCircle(hero.x, GROUND_Y - 104f, 70f + fraction * 85f, paint);
-            paint.setStyle(Paint.Style.FILL);
-        }
         if (heroAtlas == null || heroAtlas.isRecycled()) {
-            drawFallbackFighter(canvas, destination, CRIMSON, alpha, hero.facing);
+            drawFallbackFighter(canvas, spriteDestination,
+                    hero.hurtTimer > 0.08f ? Color.WHITE : CRIMSON, alpha, hero.facing);
         } else {
-            drawAtlasCell(canvas, heroAtlas, 4, 4, column, row, destination,
-                    hero.facing < 0, alpha, 4);
+            drawAtlasBlend(canvas, heroAtlas, 4, 4,
+                    firstColumn, firstRow, secondColumn, secondRow, blend,
+                    spriteDestination, hero.facing > 0, alpha, 4,
+                    hero.hurtTimer > 0.08f);
         }
+        canvas.restore();
+    }
+
+    private void drawHeroSkillCharge(Canvas canvas, float x, float progress) {
+        float triggerFraction = heroActionTrigger / Math.max(0.01f, heroActionDuration);
+        float charge = smootherStep(RpgRules.clamp(progress
+                / Math.max(0.01f, triggerFraction), 0f, 1f));
+        float release = progress <= triggerFraction ? 0f
+                : smootherStep(RpgRules.clamp((progress - triggerFraction)
+                / Math.max(0.01f, 1f - triggerFraction), 0f, 1f));
+        int color = heroAction == ACTION_SIPHON || heroAction == ACTION_CHAIN ? CYAN
+                : heroAction == ACTION_RAIN ? GOLD
+                : heroAction == ACTION_PILLAR ? Color.rgb(255, 74, 76)
+                : heroAction == ACTION_ECLIPSE ? Color.rgb(212, 76, 242)
+                : heroAction == ACTION_NOVA ? Color.rgb(230, 45, 91) : CRIMSON;
+        float centerX = heroAction == ACTION_SPEAR ? x + hero.facing * 74f : x;
+        float centerY = heroAction == ACTION_NOVA || heroAction == ACTION_ECLIPSE
+                ? GROUND_Y - 102f : GROUND_Y - 116f;
+
+        paint.setShader(new RadialGradient(centerX, centerY,
+                42f + charge * (heroAction == ACTION_NOVA || heroAction == ACTION_ECLIPSE
+                        ? 132f : 58f),
+                withAlpha(Color.WHITE, Math.round(90f * charge)),
+                withAlpha(color, Math.round(78f * charge)), Shader.TileMode.CLAMP));
+        canvas.drawCircle(centerX, centerY,
+                42f + charge * (heroAction == ACTION_NOVA || heroAction == ACTION_ECLIPSE
+                        ? 132f : 58f), paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for (int ring = 0; ring < (heroAction == ACTION_NOVA
+                || heroAction == ACTION_ECLIPSE ? 4 : 2); ring++) {
+            float radius = 34f + ring * 28f + charge * (24f + ring * 7f) - release * 12f;
+            paint.setStrokeWidth(Math.max(2f, 5f - ring));
+            paint.setColor(withAlpha(ring == 1 ? GOLD : color,
+                    Math.round((155f - ring * 28f) * charge * (1f - release * 0.55f))));
+            canvas.drawCircle(centerX, centerY, radius, paint);
+        }
+        if (heroAction == ACTION_SPEAR) {
+            for (int ray = -2; ray <= 2; ray++) {
+                float y = centerY + ray * 9f;
+                float start = centerX - hero.facing * (24f - Math.abs(ray) * 4f);
+                float end = centerX + hero.facing * (58f + charge * 46f - Math.abs(ray) * 7f);
+                paint.setStrokeWidth(ray == 0 ? 5f : 2f);
+                paint.setColor(withAlpha(ray == 0 ? Color.WHITE : CRIMSON,
+                        Math.round((ray == 0 ? 190f : 130f) * charge)));
+                canvas.drawLine(start, y, end, y, paint);
+            }
+        } else if (heroAction == ACTION_SIPHON) {
+            Enemy target = nearestEnemy(350f);
+            if (target != null) {
+                float targetX = enemyRenderX(target);
+                effectPath.reset();
+                effectPath.moveTo(targetX, GROUND_Y - 116f);
+                effectPath.cubicTo(targetX + hero.facing * 45f, GROUND_Y - 200f,
+                        x - hero.facing * 52f, GROUND_Y - 190f,
+                        x, GROUND_Y - 116f);
+                paint.setStrokeWidth(3f + charge * 3f);
+                paint.setColor(withAlpha(CRIMSON, Math.round(150f * charge)));
+                canvas.drawPath(effectPath, paint);
+            }
+        } else {
+            for (int ray = 0; ray < 12; ray++) {
+                float angle = ambientClock * 1.3f + ray * (float) Math.PI / 6f;
+                float inner = 74f + charge * 22f;
+                float outer = inner + 28f + charge * 34f;
+                paint.setStrokeWidth(ray % 3 == 0 ? 4f : 2f);
+                paint.setColor(withAlpha(ray % 3 == 0 ? GOLD : color,
+                        Math.round((ray % 3 == 0 ? 150f : 92f) * charge)));
+                canvas.drawLine(centerX + (float) Math.cos(angle) * inner,
+                        centerY + (float) Math.sin(angle) * inner * 0.7f,
+                        centerX + (float) Math.cos(angle) * outer,
+                        centerY + (float) Math.sin(angle) * outer * 0.7f, paint);
+            }
+        }
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawBossPresence(Canvas canvas, Enemy enemy, float x) {
+        if (enemy.dead || enemy.spawnTimer > 0f) {
+            return;
+        }
+        int variant = RpgRules.clamp(enemy.bossVariant, 0, 2);
+        int accent = bossAccentColor(variant);
+        float pulse = 0.5f + 0.5f * (float) Math.sin(enemy.animClock * 4.8f);
+        float awakened = enemy.phaseTriggered ? 1f : 0.48f;
+        float centerY = BossPresentationMetrics.torsoY(GROUND_Y, variant);
+        float radius = BossPresentationMetrics.phaseAuraRadius(variant, pulse);
+
+        paint.setShader(new RadialGradient(x, centerY, radius * 1.15f,
+                new int[]{withAlpha(Color.WHITE, Math.round(18f * awakened)),
+                        withAlpha(accent, Math.round(62f * awakened)),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.48f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(x, centerY, radius * 1.15f, paint);
+        paint.setShader(null);
+
+        canvas.save();
+        float spinDirection = variant == 1 ? -1f : 1f;
+        canvas.rotate(enemy.animClock * (enemy.phaseTriggered ? 17f : 7f) * spinDirection,
+                x, centerY);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+
+        if (variant == 0) {
+            for (int ring = 0; ring < 3; ring++) {
+                float ringRadius = radius * (0.58f + ring * 0.17f);
+                effectBounds.set(x - ringRadius, centerY - ringRadius,
+                        x + ringRadius, centerY + ringRadius);
+                paint.setStrokeWidth(2.2f + ring * 0.9f);
+                paint.setColor(withAlpha(ring == 1 ? Color.WHITE : accent,
+                        Math.round((72f + ring * 22f) * awakened)));
+                canvas.drawArc(effectBounds, 12f + ring * 34f, 118f, false, paint);
+                canvas.drawArc(effectBounds, 192f + ring * 31f, 104f, false, paint);
+            }
+            paint.setStrokeWidth(enemy.phaseTriggered ? 4f : 2.5f);
+            for (int ray = 0; ray < 12; ray++) {
+                float angle = ray * (float) Math.PI / 6f;
+                float inner = radius * (ray % 3 == 0 ? 0.76f : 0.84f);
+                float outer = radius * (ray % 3 == 0 ? 1.08f : 0.98f);
+                paint.setColor(withAlpha(ray % 3 == 0 ? Color.WHITE : accent,
+                        Math.round((ray % 3 == 0 ? 142f : 78f) * awakened)));
+                canvas.drawLine(x + (float) Math.cos(angle) * inner,
+                        centerY + (float) Math.sin(angle) * inner,
+                        x + (float) Math.cos(angle) * outer,
+                        centerY + (float) Math.sin(angle) * outer, paint);
+            }
+        } else if (variant == 1) {
+            for (int ring = 0; ring < 2; ring++) {
+                float ringRadius = radius * (0.72f + ring * 0.18f);
+                effectBounds.set(x - ringRadius, centerY - ringRadius,
+                        x + ringRadius, centerY + ringRadius);
+                paint.setStrokeWidth(ring == 0 ? 5f : 2.5f);
+                paint.setColor(withAlpha(ring == 0 ? CYAN : VIOLET,
+                        Math.round((112f - ring * 30f) * awakened)));
+                canvas.drawArc(effectBounds, 24f + ring * 86f, 216f, false, paint);
+            }
+            paint.setStrokeWidth(3f);
+            for (int link = 0; link < 7; link++) {
+                float angle = link * (float) Math.PI * 2f / 7f;
+                float linkX = x + (float) Math.cos(angle) * radius * 0.91f;
+                float linkY = centerY + (float) Math.sin(angle) * radius * 0.91f;
+                effectBounds.set(linkX - 8f, linkY - 4f, linkX + 8f, linkY + 4f);
+                paint.setColor(withAlpha(link % 2 == 0 ? CYAN : Color.WHITE,
+                        Math.round(105f * awakened)));
+                canvas.drawOval(effectBounds, paint);
+            }
+        } else {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(withAlpha(Color.rgb(1, 2, 8),
+                    Math.round((enemy.phaseTriggered ? 176f : 112f) * awakened)));
+            canvas.drawCircle(x, centerY, radius * 0.68f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(enemy.phaseTriggered ? 6f : 3.5f);
+            paint.setColor(withAlpha(accent, Math.round(178f * awakened)));
+            canvas.drawCircle(x, centerY, radius * 0.72f, paint);
+            for (int blade = 0; blade < 8; blade++) {
+                float angle = blade * (float) Math.PI / 4f;
+                float inner = radius * 0.78f;
+                float outer = radius * (blade % 2 == 0 ? 1.08f : 0.96f);
+                paint.setStrokeWidth(blade % 2 == 0 ? 4.5f : 2.5f);
+                paint.setColor(withAlpha(blade % 2 == 0 ? accent : GOLD,
+                        Math.round((blade % 2 == 0 ? 150f : 86f) * awakened)));
+                canvas.drawLine(x + (float) Math.cos(angle) * inner,
+                        centerY + (float) Math.sin(angle) * inner,
+                        x + (float) Math.cos(angle) * outer,
+                        centerY + (float) Math.sin(angle) * outer, paint);
+            }
+        }
+        canvas.restore();
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawEnemy(Canvas canvas, Enemy enemy) {
+        float x = enemyRenderX(enemy);
         int alpha = enemy.dead
                 ? Math.round(255f * RpgRules.clamp(enemy.deadTimer
                 / (enemy.kind == RpgRules.ENEMY_BOSS ? 1.15f : 0.68f), 0f, 1f))
                 : enemy.spawnTimer > 0f
                 ? Math.round(255f * (1f - enemy.spawnTimer
                 / (enemy.kind == RpgRules.ENEMY_BOSS ? 1.1f : 0.58f))) : 255;
-        if (enemy.hurtTimer > 0f && ((int) (enemy.hurtTimer * 46f) & 1) == 0) {
-            alpha = Math.min(alpha, 125);
+        boolean hitFlash = !enemy.dead && enemy.hurtTimer > 0.07f
+                && ((int) (enemy.hurtTimer * 46f) & 1) == 0;
+        if (enemy.elite && !enemy.dead && enemy.spawnTimer <= 0f) {
+            float pulse = 0.5f + 0.5f * (float) Math.sin(enemy.animClock * 5.2f);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f + pulse * 2f);
+            paint.setColor(withAlpha(GOLD, Math.round(95f + pulse * 65f)));
+            canvas.drawCircle(x, GROUND_Y - 74f, 72f + pulse * 8f, paint);
+            paint.setStyle(Paint.Style.FILL);
         }
         if (enemy.kind == RpgRules.ENEMY_BOSS) {
-            ensureBossAtlas();
+            drawBossPresence(canvas, enemy, x);
+        }
+        if (enemy.kind == RpgRules.ENEMY_BOSS) {
+            ensureBossAtlas(enemy.bossVariant);
+            Bitmap activeBossAtlas = bossAtlasForVariant(enemy.bossVariant);
             int row = 0;
-            int column = 0;
+            int firstColumn = 0;
+            int secondColumn = 0;
+            float blend = 0f;
             if (enemy.dead) {
                 row = 2;
-                column = 3;
+                firstColumn = secondColumn = 3;
             } else if (enemy.actionTimer > 0f) {
                 row = enemy.actionType == ENEMY_MELEE || enemy.actionType == ENEMY_HEAVY ? 1 : 2;
-                column = enemy.actionTriggered ? 2 : 0;
+                float progress = 1f - enemy.actionTimer / Math.max(0.01f, enemy.actionDuration);
+                float frame = RpgRules.clamp(progress * 2.25f, 0f, 2f);
+                firstColumn = Math.min(2, (int) Math.floor(frame));
+                secondColumn = Math.min(2, firstColumn + 1);
+                blend = smootherStep(frame - (float) Math.floor(frame));
             } else if (Math.abs(enemy.velocity) > 24f) {
-                column = ((int) (enemy.runDistance / 38f)) & 1;
+                float frame = enemy.runDistance / 42f;
+                firstColumn = Math.floorMod((int) Math.floor(frame), 2);
+                secondColumn = 1 - firstColumn;
+                blend = smootherStep(frame - (float) Math.floor(frame));
             }
-            float width = 330f;
-            float height = 278f;
-            RectF destination = new RectF(enemy.x - width * 0.5f,
-                    GROUND_Y - height + 22f, enemy.x + width * 0.5f, GROUND_Y + 22f);
-            if (bossAtlas == null || bossAtlas.isRecycled()) {
-                drawFallbackFighter(canvas, destination, GOLD, alpha, enemy.facing);
-            } else {
-                drawAtlasCell(canvas, bossAtlas, 4, 3, column, row, destination,
-                        enemy.facing > 0, alpha, 3);
+            float width = BossPresentationMetrics.spriteWidth(enemy.bossVariant);
+            float height = BossPresentationMetrics.spriteHeight(enemy.bossVariant);
+            spriteDestination.set(x - width * 0.5f,
+                    GROUND_Y - height + 13f, x + width * 0.5f, GROUND_Y + 13f);
+            canvas.save();
+            if (enemy.hurtTimer > 0f) {
+                canvas.rotate(-enemy.facing * 5.5f, x, GROUND_Y + 5f);
+            } else if (Math.abs(enemy.velocity) > 24f) {
+                canvas.rotate(-enemy.facing * 1.4f, x, GROUND_Y + 5f);
             }
-        } else {
-            int row = enemy.kind;
-            int column;
-            if (enemy.actionTimer > 0f) {
-                column = enemy.actionTriggered ? 3 : 2;
-            } else if (Math.abs(enemy.velocity) > 20f) {
-                column = ((int) (enemy.runDistance / 31f)) & 1;
-            } else {
-                column = 0;
-            }
-            float width = enemy.kind == RpgRules.ENEMY_WRAITH ? 224f : 210f;
-            float height = enemy.kind == RpgRules.ENEMY_WRAITH ? 204f : 196f;
-            RectF destination = new RectF(enemy.x - width * 0.5f,
-                    GROUND_Y - height + 18f, enemy.x + width * 0.5f, GROUND_Y + 18f);
-            if (enemyAtlas == null || enemyAtlas.isRecycled()) {
-                drawFallbackFighter(canvas, destination,
-                        enemy.kind == RpgRules.ENEMY_WRAITH ? CYAN : VIOLET,
+            if (activeBossAtlas == null || activeBossAtlas.isRecycled()) {
+                drawFallbackFighter(canvas, spriteDestination,
+                        hitFlash ? Color.WHITE : bossAccentColor(enemy.bossVariant),
                         alpha, enemy.facing);
             } else {
-                drawAtlasCell(canvas, enemyAtlas, 4, 3, column, row, destination,
-                        enemy.facing > 0, alpha, 3);
+                drawAtlasBlend(canvas, activeBossAtlas, 4, 3,
+                        firstColumn, row, secondColumn, row, blend,
+                        spriteDestination, enemy.facing > 0, alpha, 3, hitFlash);
             }
+            canvas.restore();
+        } else {
+            int row = enemy.kind;
+            int firstColumn;
+            int secondColumn;
+            float blend;
+            if (enemy.actionTimer > 0f) {
+                float progress = 1f - enemy.actionTimer / Math.max(0.01f, enemy.actionDuration);
+                firstColumn = 2;
+                secondColumn = 3;
+                blend = smootherStep(progress);
+            } else if (Math.abs(enemy.velocity) > 20f) {
+                float frame = enemy.runDistance / 36f;
+                firstColumn = Math.floorMod((int) Math.floor(frame), 2);
+                secondColumn = 1 - firstColumn;
+                blend = smootherStep(frame - (float) Math.floor(frame));
+            } else {
+                firstColumn = secondColumn = 0;
+                blend = 0f;
+            }
+            float eliteScale = enemy.elite ? 1.18f : 1f;
+            float width = (enemy.kind == RpgRules.ENEMY_WRAITH ? 150f : 142f) * eliteScale;
+            float height = (enemy.kind == RpgRules.ENEMY_WRAITH ? 138f : 132f) * eliteScale;
+            spriteDestination.set(x - width * 0.5f,
+                    GROUND_Y - height + 10f, x + width * 0.5f, GROUND_Y + 10f);
+            canvas.save();
+            if (enemy.hurtTimer > 0f) {
+                canvas.rotate(-enemy.facing * 8f, x, GROUND_Y + 4f);
+            } else if (Math.abs(enemy.velocity) > 20f) {
+                canvas.rotate(-enemy.facing * 1.8f, x, GROUND_Y + 4f);
+            }
+            if (enemyAtlas == null || enemyAtlas.isRecycled()) {
+                drawFallbackFighter(canvas, spriteDestination,
+                        hitFlash ? Color.WHITE
+                                : enemy.kind == RpgRules.ENEMY_WRAITH ? CYAN : VIOLET,
+                        alpha, enemy.facing);
+            } else {
+                drawAtlasBlend(canvas, enemyAtlas, 4, 3,
+                        firstColumn, row, secondColumn, row, blend,
+                        spriteDestination, enemy.facing > 0, alpha, 3, hitFlash);
+            }
+            canvas.restore();
         }
-        if (!enemy.dead && enemy.spawnTimer <= 0f
-                && (enemy.kind == RpgRules.ENEMY_BOSS || enemy.hurtTimer > 0f)) {
-            float width = enemy.kind == RpgRules.ENEMY_BOSS ? 260f : 112f;
-            float y = enemy.kind == RpgRules.ENEMY_BOSS ? GROUND_Y - 288f : GROUND_Y - 210f;
-            drawMiniHealthBar(canvas, enemy.x - width * 0.5f, y, width,
+        if (!enemy.dead && enemy.spawnTimer <= 0f && (enemy.kind == RpgRules.ENEMY_BOSS
+                || enemy.elite || enemy.hurtTimer > 0f)) {
+            float width = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.healthBarWidth(enemy.bossVariant)
+                    : enemy.elite ? 112f : 82f;
+            float y = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.healthBarY(GROUND_Y, enemy.bossVariant)
+                    : enemy.elite ? GROUND_Y - 176f : GROUND_Y - 150f;
+            if (enemy.kind == RpgRules.ENEMY_BOSS) {
+                drawBossNameplate(canvas, enemy, x, y, width);
+            }
+            drawMiniHealthBar(canvas, x - width * 0.5f, y, width,
                     enemy.health / Math.max(1f, enemy.maxHealth),
-                    enemy.kind == RpgRules.ENEMY_BOSS ? GOLD : CRIMSON);
+                    enemy.kind == RpgRules.ENEMY_BOSS
+                            ? bossAccentColor(enemy.bossVariant) : enemy.elite ? GOLD : CRIMSON);
         }
+    }
+
+    private void drawBossNameplate(Canvas canvas, Enemy enemy, float x, float barY,
+            float width) {
+        int accent = bossAccentColor(enemy.bossVariant);
+        effectBounds.set(x - width * 0.5f, barY - 34f,
+                x + width * 0.5f, barY - 7f);
+        paint.setShader(new LinearGradient(effectBounds.left, 0f, effectBounds.right, 0f,
+                new int[]{Color.TRANSPARENT, withAlpha(Color.rgb(3, 5, 12), 226),
+                        Color.TRANSPARENT}, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(effectBounds, 10f, 10f, paint);
+        paint.setShader(null);
+        paint.setColor(withAlpha(accent, enemy.phaseTriggered ? 210 : 145));
+        canvas.drawRect(x - width * 0.32f, barY - 8.5f,
+                x + width * 0.32f, barY - 7f, paint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(13f);
+        textPaint.setLetterSpacing(0.05f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText("◆  " + bossName(enemy.bossVariant)
+                + (enemy.phaseTriggered ? "  ·  AWAKENED" : "  ·  GUARDIAN"),
+                x, barY - 15f, textPaint);
+        textPaint.setLetterSpacing(0f);
     }
 
     private void drawEnemyTelegraph(Canvas canvas, Enemy enemy) {
@@ -1600,20 +3275,29 @@ public final class GameView extends View {
         }
         float elapsed = enemy.actionDuration - enemy.actionTimer;
         float fraction = RpgRules.clamp(elapsed / Math.max(0.01f, enemy.actionTrigger), 0f, 1f);
-        int color = enemy.actionType == ENEMY_RANGED ? VIOLET
-                : enemy.actionType == ENEMY_NOVA || enemy.kind == RpgRules.ENEMY_BOSS
-                ? GOLD : CRIMSON;
+        int color = enemy.kind == RpgRules.ENEMY_BOSS
+                ? bossAccentColor(enemy.bossVariant)
+                : enemy.elite ? GOLD : enemy.actionType == ENEMY_RANGED ? VIOLET : CRIMSON;
         float radius = enemy.actionType == ENEMY_NOVA ? 255f
-                : enemy.kind == RpgRules.ENEMY_BOSS ? 88f : 58f;
+                : enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.telegraphRadius(enemy.bossVariant) : 58f;
+        float x = enemyRenderX(enemy);
+        float telegraphY = enemy.kind == RpgRules.ENEMY_BOSS
+                ? BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant)
+                : GROUND_Y - 142f;
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4f + fraction * 5f);
         paint.setColor(withAlpha(color, Math.round(72f + fraction * 165f)));
-        canvas.drawCircle(enemy.x, enemy.actionType == ENEMY_NOVA
-                ? GROUND_Y - 78f : GROUND_Y - 142f, radius * (0.78f + fraction * 0.22f), paint);
+        canvas.drawCircle(x, enemy.actionType == ENEMY_NOVA
+                ? GROUND_Y - 78f : telegraphY,
+                radius * (0.78f + fraction * 0.22f), paint);
         if (enemy.actionType == ENEMY_RANGED) {
             paint.setStrokeWidth(2f);
             paint.setColor(withAlpha(color, Math.round(38f + fraction * 82f)));
-            canvas.drawLine(enemy.x, GROUND_Y - 108f, hero.x, GROUND_Y - 108f, paint);
+            float lineY = enemy.kind == RpgRules.ENEMY_BOSS
+                    ? BossPresentationMetrics.torsoY(GROUND_Y, enemy.bossVariant)
+                    : GROUND_Y - 108f;
+            canvas.drawLine(x, lineY, heroRenderX(), lineY, paint);
         }
         paint.setStyle(Paint.Style.FILL);
     }
@@ -1621,47 +3305,1002 @@ public final class GameView extends View {
     private void drawProjectiles(Canvas canvas) {
         paint.setStrokeCap(Paint.Cap.ROUND);
         for (Projectile projectile : projectiles) {
+            float x = lerp(projectile.previousX, projectile.x, renderInterpolation);
             if (projectile.kind == 2) {
-                paint.setShader(new RadialGradient(projectile.x, projectile.y,
+                paint.setShader(new RadialGradient(x, projectile.y,
                         projectile.radius * 1.8f, Color.WHITE, projectile.color,
                         Shader.TileMode.CLAMP));
-                canvas.drawCircle(projectile.x, projectile.y, projectile.radius, paint);
+                canvas.drawCircle(x, projectile.y, projectile.radius, paint);
                 paint.setShader(null);
+            } else if (!projectile.enemyOwned && projectile.kind == 0) {
+                float direction = Math.signum(projectile.velocityX);
+                if (bloodArtsAnimationAtlasA != null
+                        && !bloodArtsAnimationAtlasA.isRecycled()) {
+                    drawBloodArtAnimationCell(canvas, bloodArtsAnimationAtlasA,
+                            0, 1, x, projectile.y, 210f, 132f,
+                            direction < 0f, 245, -8f * direction);
+                    continue;
+                }
+                if (bloodArtsAtlas != null && !bloodArtsAtlas.isRecycled()) {
+                    drawBloodArtAtlasCell(canvas, 0, x, projectile.y,
+                            210f, 132f, direction < 0f, 245, -8f * direction);
+                    continue;
+                }
+                float pulse = 0.82f + 0.18f
+                        * (float) Math.sin((projectile.maxLife - projectile.life) * 42f);
+                paint.setShader(new RadialGradient(x, projectile.y,
+                        projectile.radius * 1.9f,
+                        withAlpha(Color.WHITE, 220), withAlpha(CRIMSON, 0),
+                        Shader.TileMode.CLAMP));
+                canvas.drawCircle(x, projectile.y, projectile.radius * 1.9f, paint);
+                paint.setShader(null);
+                for (int trail = 0; trail < 6; trail++) {
+                    float wave = (float) Math.sin(ambientClock * (18f + trail * 2f)
+                            + trail * 1.7f) * (5f + trail * 2f);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(Math.max(1.8f, 10f - trail * 1.35f) * pulse);
+                    paint.setColor(withAlpha(trail == 0 ? Color.WHITE
+                                    : trail == 3 ? GOLD : CRIMSON,
+                            218 - trail * 29));
+                    canvas.drawLine(x - direction * (48f + trail * 27f),
+                            projectile.y + wave,
+                            x + direction * (24f - trail * 2f), projectile.y - wave * 0.25f,
+                            paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                effectPath.reset();
+                effectPath.moveTo(x + direction * 52f, projectile.y);
+                effectPath.lineTo(x - direction * 18f, projectile.y - 17f * pulse);
+                effectPath.lineTo(x - direction * 43f, projectile.y);
+                effectPath.lineTo(x - direction * 18f, projectile.y + 17f * pulse);
+                effectPath.close();
+                paint.setColor(CRIMSON);
+                canvas.drawPath(effectPath, paint);
+                effectPath.reset();
+                effectPath.moveTo(x + direction * 43f, projectile.y);
+                effectPath.lineTo(x - direction * 11f, projectile.y - 5f);
+                effectPath.lineTo(x - direction * 26f, projectile.y);
+                effectPath.lineTo(x - direction * 11f, projectile.y + 5f);
+                effectPath.close();
+                paint.setColor(Color.WHITE);
+                canvas.drawPath(effectPath, paint);
             } else {
                 float direction = Math.signum(projectile.velocityX);
                 float length = projectile.enemyOwned ? 28f : 64f;
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(projectile.enemyOwned ? 8f : 11f);
                 paint.setColor(projectile.color);
-                canvas.drawLine(projectile.x - direction * length, projectile.y,
-                        projectile.x + direction * 12f, projectile.y, paint);
+                canvas.drawLine(x - direction * length, projectile.y,
+                        x + direction * 12f, projectile.y, paint);
                 paint.setStrokeWidth(2f);
                 paint.setColor(Color.WHITE);
-                canvas.drawLine(projectile.x - direction * length * 0.45f, projectile.y,
-                        projectile.x + direction * 8f, projectile.y, paint);
+                canvas.drawLine(x - direction * length * 0.45f, projectile.y,
+                        x + direction * 8f, projectile.y, paint);
                 paint.setStyle(Paint.Style.FILL);
             }
         }
         paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
+    private void drawSkillEffects(Canvas canvas, boolean foreground) {
+        for (SkillEffect effect : skillEffects) {
+            float progress = RpgRules.clamp(1f - effect.life / effect.maxLife, 0f, 1f);
+            float fade = 1f - smootherStep(RpgRules.clamp((progress - 0.72f) / 0.28f, 0f, 1f));
+            if (drawBloodArtEffect(canvas, effect, foreground, progress, fade)) {
+                continue;
+            }
+            if (effect.kind == FX_NOVA) {
+                float expansion = easeOutCubic(progress);
+                float radius = effect.radius * expansion;
+                if (!foreground) {
+                    paint.setShader(new RadialGradient(effect.x, effect.y,
+                            Math.max(1f, radius),
+                            new int[]{withAlpha(Color.WHITE, Math.round(95f * fade)),
+                                    withAlpha(CRIMSON, Math.round(150f * fade)),
+                                    withAlpha(BLOOD, Math.round(55f * fade)),
+                                    Color.TRANSPARENT},
+                            new float[]{0f, 0.18f, 0.62f, 1f}, Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, effect.y, Math.max(1f, radius), paint);
+                    paint.setShader(null);
+                    paint.setColor(withAlpha(CRIMSON, Math.round(100f * fade)));
+                    effectBounds.set(effect.x - radius, GROUND_Y - 30f,
+                            effect.x + radius, GROUND_Y + 34f);
+                    canvas.drawOval(effectBounds, paint);
+                } else {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int ring = 0; ring < 5; ring++) {
+                        float ringRadius = radius * (0.42f + ring * 0.135f);
+                        paint.setStrokeWidth(Math.max(2f, 10f - ring * 1.7f));
+                        paint.setColor(withAlpha(ring == 1 ? GOLD : CRIMSON,
+                                Math.round((215f - ring * 45f) * fade)));
+                        canvas.drawCircle(effect.x, effect.y, ringRadius, paint);
+                    }
+                    for (int ray = 0; ray < 28; ray++) {
+                        float angle = effect.seed + progress * 1.8f
+                                + ray * (float) Math.PI * 2f / 28f;
+                        float inner = radius * (0.58f + (ray % 3) * 0.07f);
+                        float outer = inner + 34f + (ray % 4) * 13f;
+                        paint.setStrokeWidth(ray % 4 == 0 ? 6f : 3f);
+                        paint.setColor(withAlpha(ray % 5 == 0 ? Color.WHITE : CRIMSON,
+                                Math.round((ray % 5 == 0 ? 220f : 145f) * fade)));
+                        canvas.drawLine(effect.x + (float) Math.cos(angle) * inner,
+                                effect.y + (float) Math.sin(angle) * inner * 0.62f,
+                                effect.x + (float) Math.cos(angle) * outer,
+                                effect.y + (float) Math.sin(angle) * outer * 0.62f, paint);
+                    }
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (effect.kind == FX_RUSH) {
+                float dx = effect.targetX - effect.x;
+                float coreFade = fade * (1f - progress * 0.35f);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                if (!foreground) {
+                    for (int band = 0; band < 5; band++) {
+                        float offset = (band - 2) * 12f;
+                        paint.setStrokeWidth(22f - band * 3f);
+                        paint.setColor(withAlpha(band == 0 ? Color.WHITE
+                                        : band == 2 ? GOLD : CRIMSON,
+                                Math.round((72f - band * 8f) * coreFade)));
+                        canvas.drawLine(effect.x - effect.direction * 44f,
+                                effect.y + offset,
+                                effect.targetX + effect.direction * 34f,
+                                effect.targetY - offset * 0.25f, paint);
+                    }
+                } else {
+                    float impactRadius = 34f + easeOutCubic(progress) * 104f;
+                    for (int slash = -4; slash <= 4; slash++) {
+                        float offset = slash * 13f;
+                        paint.setStrokeWidth(slash == 0 ? 8f : 3f);
+                        paint.setColor(withAlpha(slash % 3 == 0 ? Color.WHITE : CRIMSON,
+                                Math.round((slash == 0 ? 240f : 155f) * fade)));
+                        canvas.drawLine(effect.targetX - effect.direction * impactRadius,
+                                effect.targetY + offset - 58f,
+                                effect.targetX + effect.direction * impactRadius * 0.7f,
+                                effect.targetY - offset + 58f, paint);
+                    }
+                    paint.setStrokeWidth(6f * fade + 1f);
+                    paint.setColor(withAlpha(GOLD, Math.round(210f * fade)));
+                    canvas.drawCircle(effect.targetX, effect.targetY,
+                            impactRadius * 0.62f, paint);
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+            } else if (effect.kind == FX_RAIN) {
+                float strike = easeOutCubic(RpgRules.clamp(progress * 1.5f, 0f, 1f));
+                if (!foreground) {
+                    float glowRadius = 68f + strike * 88f;
+                    paint.setShader(new RadialGradient(effect.x, effect.y, glowRadius,
+                            withAlpha(GOLD, Math.round(105f * fade)),
+                            withAlpha(CRIMSON, 0), Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, effect.y, glowRadius, paint);
+                    paint.setShader(null);
+                } else {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int blade = 0; blade < 9; blade++) {
+                        float delay = blade * 0.055f;
+                        float bladeProgress = easeOutCubic(RpgRules.clamp(
+                                (progress - delay) / Math.max(0.01f, 0.62f - delay), 0f, 1f));
+                        float offset = (blade - 4) * 24f;
+                        float startX = effect.x + offset - effect.direction * 96f;
+                        float startY = effect.y - 290f - (blade % 3) * 28f;
+                        float endX = effect.x + offset * 0.55f + effect.direction * 38f;
+                        float endY = effect.y + 52f;
+                        float bladeX = lerp(startX, endX, bladeProgress);
+                        float bladeY = lerp(startY, endY, bladeProgress);
+                        paint.setStrokeWidth(blade % 3 == 0 ? 7f : 3.5f);
+                        paint.setColor(withAlpha(blade % 4 == 0 ? Color.WHITE
+                                        : blade % 3 == 0 ? GOLD : CRIMSON,
+                                Math.round((blade % 3 == 0 ? 235f : 175f) * fade)));
+                        canvas.drawLine(bladeX - effect.direction * 72f, bladeY - 96f,
+                                bladeX + effect.direction * 26f, bladeY + 42f, paint);
+                    }
+                    paint.setStrokeWidth(5f);
+                    paint.setColor(withAlpha(CRIMSON, Math.round(190f * fade)));
+                    effectBounds.set(effect.x - 108f, effect.y + 28f,
+                            effect.x + 108f, effect.y + 68f);
+                    canvas.drawOval(effectBounds, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (effect.kind == FX_CHAIN) {
+                float pulse = 0.72f + (float) Math.sin(progress * 34f + effect.seed) * 0.28f;
+                float dx = effect.targetX - effect.x;
+                float dy = effect.targetY - effect.y;
+                if (!foreground) {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    paint.setStrokeWidth(26f * fade);
+                    paint.setColor(withAlpha(CYAN, Math.round(42f * fade)));
+                    canvas.drawLine(effect.x, effect.y, effect.targetX, effect.targetY, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                } else {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int strand = 0; strand < 4; strand++) {
+                        effectPath.reset();
+                        effectPath.moveTo(effect.x, effect.y);
+                        for (int segment = 1; segment <= 9; segment++) {
+                            float t = segment / 9f;
+                            float normalX = -dy;
+                            float normalY = dx;
+                            float inverseLength = 1f / Math.max(1f,
+                                    (float) Math.sqrt(normalX * normalX + normalY * normalY));
+                            float jitter = (float) Math.sin(segment * 4.7f
+                                    + strand * 2.3f + effect.seed * 5f) * (12f - strand * 2f);
+                            effectPath.lineTo(effect.x + dx * t + normalX * inverseLength * jitter,
+                                    effect.y + dy * t + normalY * inverseLength * jitter);
+                        }
+                        paint.setStrokeWidth(strand == 0 ? 7f * pulse : 2.5f);
+                        paint.setColor(withAlpha(strand == 0 ? Color.WHITE
+                                        : strand == 1 ? CYAN : CRIMSON,
+                                Math.round((strand == 0 ? 235f : 165f) * fade)));
+                        canvas.drawPath(effectPath, paint);
+                    }
+                    float nodeRadius = 16f + progress * 38f;
+                    paint.setStrokeWidth(4f);
+                    paint.setColor(withAlpha(GOLD, Math.round(205f * fade)));
+                    canvas.drawCircle(effect.targetX, effect.targetY, nodeRadius, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (effect.kind == FX_PILLAR) {
+                float rise = easeOutCubic(RpgRules.clamp(progress * 1.8f, 0f, 1f));
+                float width = 46f + rise * 86f;
+                if (!foreground) {
+                    paint.setShader(new RadialGradient(effect.x, GROUND_Y - 54f,
+                            170f, withAlpha(Color.WHITE, Math.round(125f * fade)),
+                            withAlpha(CRIMSON, 0), Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, GROUND_Y - 54f, 170f, paint);
+                    paint.setShader(null);
+                    paint.setColor(withAlpha(BLOOD, Math.round(145f * fade)));
+                    effectBounds.set(effect.x - width, GROUND_Y - 28f,
+                            effect.x + width, GROUND_Y + 34f);
+                    canvas.drawOval(effectBounds, paint);
+                } else {
+                    for (int column = -2; column <= 2; column++) {
+                        float columnX = effect.x + column * width * 0.34f;
+                        float topY = GROUND_Y - 82f - rise * (330f + Math.abs(column) * 36f);
+                        effectPath.reset();
+                        effectPath.moveTo(columnX - width * 0.2f, GROUND_Y - 42f);
+                        effectPath.lineTo(columnX - width * 0.06f, topY);
+                        effectPath.lineTo(columnX + width * 0.18f, GROUND_Y - 42f);
+                        effectPath.close();
+                        paint.setColor(withAlpha(column == 0 ? Color.WHITE
+                                        : column % 2 == 0 ? GOLD : CRIMSON,
+                                Math.round((column == 0 ? 205f : 150f) * fade)));
+                        canvas.drawPath(effectPath, paint);
+                    }
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(5f * fade + 1f);
+                    for (int ring = 0; ring < 3; ring++) {
+                        float ringWidth = 62f + rise * (76f + ring * 34f);
+                        effectBounds.set(effect.x - ringWidth, GROUND_Y - 66f - ring * 7f,
+                                effect.x + ringWidth, GROUND_Y + 20f + ring * 7f);
+                        paint.setColor(withAlpha(ring == 1 ? GOLD : CRIMSON,
+                                Math.round((210f - ring * 48f) * fade)));
+                        canvas.drawOval(effectBounds, paint);
+                    }
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (effect.kind == FX_ECLIPSE) {
+                float expansion = easeOutCubic(progress);
+                float moonRadius = 76f + expansion * 142f;
+                if (!foreground) {
+                    paint.setShader(new RadialGradient(effect.x, effect.y,
+                            Math.max(1f, effect.radius * expansion),
+                            new int[]{withAlpha(Color.WHITE, Math.round(90f * fade)),
+                                    withAlpha(Color.rgb(231, 32, 83), Math.round(150f * fade)),
+                                    withAlpha(Color.rgb(83, 18, 112), Math.round(88f * fade)),
+                                    Color.TRANSPARENT},
+                            new float[]{0f, 0.12f, 0.48f, 1f}, Shader.TileMode.CLAMP));
+                    canvas.drawCircle(effect.x, effect.y,
+                            Math.max(1f, effect.radius * expansion), paint);
+                    paint.setShader(null);
+                } else {
+                    paint.setColor(withAlpha(Color.rgb(4, 3, 11), Math.round(245f * fade)));
+                    canvas.drawCircle(effect.x, effect.y, moonRadius * 0.72f, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    for (int ring = 0; ring < 6; ring++) {
+                        paint.setStrokeWidth(Math.max(2f, 10f - ring * 1.35f));
+                        paint.setColor(withAlpha(ring % 3 == 1 ? GOLD
+                                        : ring % 2 == 0 ? Color.WHITE : effect.color,
+                                Math.round((225f - ring * 27f) * fade)));
+                        canvas.drawCircle(effect.x, effect.y,
+                                moonRadius * (0.78f + ring * 0.13f), paint);
+                    }
+                    for (int ray = 0; ray < 36; ray++) {
+                        float angle = effect.seed + progress * 2.6f
+                                + ray * (float) Math.PI * 2f / 36f;
+                        float inner = moonRadius * (1.02f + (ray % 3) * 0.08f);
+                        float outer = inner + 58f + (ray % 5) * 18f;
+                        paint.setStrokeWidth(ray % 6 == 0 ? 7f : 2.5f);
+                        paint.setColor(withAlpha(ray % 6 == 0 ? Color.WHITE
+                                        : ray % 4 == 0 ? GOLD : effect.color,
+                                Math.round((ray % 6 == 0 ? 225f : 145f) * fade)));
+                        canvas.drawLine(effect.x + (float) Math.cos(angle) * inner,
+                                effect.y + (float) Math.sin(angle) * inner,
+                                effect.x + (float) Math.cos(angle) * outer,
+                                effect.y + (float) Math.sin(angle) * outer, paint);
+                    }
+                    float groundWidth = 190f + expansion * 410f;
+                    effectBounds.set(effect.x - groundWidth, GROUND_Y - 76f,
+                            effect.x + groundWidth, GROUND_Y + 52f);
+                    paint.setStrokeWidth(8f * fade + 1f);
+                    paint.setColor(withAlpha(CRIMSON, Math.round(220f * fade)));
+                    canvas.drawOval(effectBounds, paint);
+                    paint.setStrokeCap(Paint.Cap.BUTT);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+            } else if (foreground && effect.kind == FX_TETHER) {
+                float dx = effect.targetX - effect.x;
+                float direction = dx == 0f ? 1f : Math.signum(dx);
+                for (int strand = 0; strand < 6; strand++) {
+                    float wave = (float) Math.sin(progress * 26f + effect.seed + strand * 1.8f)
+                            * (16f + strand * 4f);
+                    float control1X = effect.x + dx * 0.32f;
+                    float control2X = effect.x + dx * 0.7f;
+                    float control1Y = effect.y - 45f - wave;
+                    float control2Y = effect.targetY - 34f + wave;
+                    effectPath.reset();
+                    effectPath.moveTo(effect.x, effect.y);
+                    effectPath.cubicTo(control1X, control1Y,
+                            control2X, control2Y, effect.targetX, effect.targetY);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeCap(Paint.Cap.ROUND);
+                    paint.setStrokeWidth(strand == 0 ? 8f : 2.5f + strand * 0.55f);
+                    paint.setColor(withAlpha(strand == 0 ? Color.WHITE
+                                    : strand == 1 ? CYAN : CRIMSON,
+                            Math.round((210f - strand * 28f) * fade)));
+                    canvas.drawPath(effectPath, paint);
+                    for (int drop = 0; drop < 3; drop++) {
+                        float t = (progress * (1.5f + strand * 0.12f)
+                                + drop * 0.29f + strand * 0.09f) % 1f;
+                        float px = cubicBezier(effect.x, control1X, control2X, effect.targetX, t);
+                        float py = cubicBezier(effect.y, control1Y, control2Y, effect.targetY, t);
+                        paint.setStyle(Paint.Style.FILL);
+                        paint.setColor(withAlpha(drop == 0 ? Color.WHITE : CRIMSON,
+                                Math.round(220f * fade)));
+                        canvas.drawCircle(px + direction * strand, py, 4.5f - drop * 0.7f, paint);
+                    }
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+            } else if (foreground && effect.kind == FX_SPEAR_IMPACT) {
+                float radius = effect.radius * (0.28f + smootherStep(progress) * 0.72f);
+                paint.setShader(new RadialGradient(effect.x, effect.y, radius,
+                        withAlpha(Color.WHITE, Math.round(210f * fade)),
+                        withAlpha(effect.color, 0), Shader.TileMode.CLAMP));
+                canvas.drawCircle(effect.x, effect.y, radius, paint);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setStrokeWidth(7f * fade + 1f);
+                paint.setColor(withAlpha(effect.color, Math.round(230f * fade)));
+                canvas.drawCircle(effect.x, effect.y, radius * 0.76f, paint);
+                for (int ray = -3; ray <= 3; ray++) {
+                    float angle = ray * 0.22f;
+                    float dx = effect.direction * (float) Math.cos(angle) * radius;
+                    float dy = (float) Math.sin(angle) * radius * 0.7f;
+                    canvas.drawLine(effect.x + dx * 0.22f, effect.y + dy * 0.22f,
+                            effect.x + dx, effect.y + dy, paint);
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+            }
+        }
+    }
+
+    private void drawImpactEffects(Canvas canvas, boolean foreground) {
+        for (ImpactEffect effect : impactEffects) {
+            float progress = RpgRules.clamp(1f - effect.life / effect.maxLife, 0f, 1f);
+            float fade = ImpactAnimationRules.alpha(progress);
+            float size = ImpactAnimationRules.size(effect.style)
+                    * ImpactAnimationRules.visualScale(progress);
+            int alpha = Math.round(255f * fade);
+            int accent = effect.style == ImpactAnimationRules.STYLE_FINISHER ? GOLD : CRIMSON;
+            if (!foreground) {
+                float glowRadius = size * (0.42f + progress * 0.20f);
+                paint.setShader(new RadialGradient(effect.x, effect.y,
+                        Math.max(1f, glowRadius),
+                        new int[]{withAlpha(Color.WHITE, Math.round(92f * fade)),
+                                withAlpha(accent, Math.round(72f * fade)),
+                                Color.TRANSPARENT},
+                        new float[]{0f, 0.24f, 1f}, Shader.TileMode.CLAMP));
+                canvas.drawCircle(effect.x, effect.y, Math.max(1f, glowRadius), paint);
+                paint.setShader(null);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(effect.style == ImpactAnimationRules.STYLE_NORMAL ? 3f : 6f);
+                paint.setColor(withAlpha(accent, Math.round(120f * fade)));
+                effectBounds.set(effect.x - size * 0.46f, effect.y - size * 0.24f,
+                        effect.x + size * 0.46f, effect.y + size * 0.24f);
+                canvas.drawOval(effectBounds, paint);
+                paint.setStyle(Paint.Style.FILL);
+                continue;
+            }
+
+            if (impactAnimationAtlas == null || impactAnimationAtlas.isRecycled()) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setStrokeWidth(effect.style == ImpactAnimationRules.STYLE_NORMAL ? 4f : 8f);
+                paint.setColor(withAlpha(Color.WHITE, alpha));
+                for (int ray = -3; ray <= 3; ray++) {
+                    float angle = ray * 0.22f;
+                    float dx = effect.direction * (float) Math.cos(angle) * size * 0.5f;
+                    float dy = (float) Math.sin(angle) * size * 0.38f;
+                    canvas.drawLine(effect.x + dx * 0.12f, effect.y + dy * 0.12f,
+                            effect.x + dx, effect.y + dy, paint);
+                }
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setStyle(Paint.Style.FILL);
+                continue;
+            }
+
+            int firstFrame = ImpactAnimationRules.firstFrame(progress);
+            int secondFrame = ImpactAnimationRules.secondFrame(progress);
+            float blend = ImpactAnimationRules.frameBlend(progress);
+            drawImpactAnimationCell(canvas, effect.style, firstFrame,
+                    effect.x, effect.y, size, effect.direction < 0f,
+                    Math.round(alpha * (1f - blend)), effect.rotation * effect.direction);
+            if (secondFrame != firstFrame && blend > 0f) {
+                drawImpactAnimationCell(canvas, effect.style, secondFrame,
+                        effect.x, effect.y, size, effect.direction < 0f,
+                        Math.round(alpha * blend), effect.rotation * effect.direction);
+            }
+        }
+    }
+
+    private void drawImpactAnimationCell(Canvas canvas, int row, int frame,
+                                         float centerX, float centerY, float size,
+                                         boolean flip, int alpha, float rotation) {
+        if (impactAnimationAtlas == null || impactAnimationAtlas.isRecycled() || alpha <= 0) {
+            return;
+        }
+        int safeRow = RpgRules.clamp(row, 0, 2);
+        int safeFrame = RpgRules.clamp(frame, 0, ImpactAnimationRules.FRAME_COUNT - 1);
+        int cellWidth = impactAnimationAtlas.getWidth() / ImpactAnimationRules.FRAME_COUNT;
+        int cellHeight = impactAnimationAtlas.getHeight() / 3;
+        int inset = 3;
+        int left = safeFrame * cellWidth + inset;
+        int top = safeRow * cellHeight + inset;
+        int right = safeFrame == ImpactAnimationRules.FRAME_COUNT - 1
+                ? impactAnimationAtlas.getWidth() - inset : left + cellWidth - inset * 2;
+        int bottom = safeRow == 2
+                ? impactAnimationAtlas.getHeight() - inset : top + cellHeight - inset * 2;
+        atlasSource.set(left, top, right, bottom);
+        spriteDestination.set(-size * 0.5f, -size * 0.5f, size * 0.5f, size * 0.5f);
+        canvas.save();
+        canvas.translate(centerX, centerY);
+        canvas.rotate(rotation);
+        canvas.scale(flip ? -1f : 1f, 1f);
+        paint.setAlpha(RpgRules.clamp(alpha, 0, 255));
+        paint.setColorFilter(null);
+        canvas.drawBitmap(impactAnimationAtlas, atlasSource, spriteDestination, paint);
+        paint.setAlpha(255);
+        canvas.restore();
+    }
+
+    private boolean drawBloodArtEffect(Canvas canvas, SkillEffect effect,
+                                       boolean foreground, float progress, float fade) {
+        boolean staticAtlasAvailable = bloodArtsAtlas != null && !bloodArtsAtlas.isRecycled();
+        boolean animationAtlasAvailable = (bloodArtsAnimationAtlasA != null
+                && !bloodArtsAnimationAtlasA.isRecycled())
+                || (bloodArtsAnimationAtlasB != null
+                && !bloodArtsAnimationAtlasB.isRecycled());
+        if (!staticAtlasAvailable && !animationAtlasAvailable) {
+            return false;
+        }
+        int atlasIndex;
+        Bitmap animationAtlas;
+        int animationRow;
+        float centerX = effect.x;
+        float centerY = effect.y;
+        float width;
+        float height;
+        float rotation = 0f;
+        boolean flip = effect.direction < 0f;
+        if (effect.kind == FX_SPEAR_IMPACT) {
+            atlasIndex = 0;
+            animationAtlas = bloodArtsAnimationAtlasA;
+            animationRow = 0;
+            width = 270f;
+            height = 196f;
+            rotation = -9f * effect.direction;
+        } else if (effect.kind == FX_TETHER) {
+            atlasIndex = 1;
+            animationAtlas = bloodArtsAnimationAtlasA;
+            animationRow = 1;
+            centerX = (effect.x + effect.targetX) * 0.5f;
+            centerY = (effect.y + effect.targetY) * 0.5f - 12f;
+            width = Math.max(250f, Math.abs(effect.targetX - effect.x) + 210f);
+            height = 238f;
+            flip = effect.targetX < effect.x;
+        } else if (effect.kind == FX_NOVA) {
+            atlasIndex = 2;
+            animationAtlas = bloodArtsAnimationAtlasA;
+            animationRow = 2;
+            width = Math.max(350f, effect.radius * 1.95f);
+            height = width;
+        } else if (effect.kind == FX_RUSH) {
+            atlasIndex = 3;
+            animationAtlas = bloodArtsAnimationAtlasA;
+            animationRow = 3;
+            float travel = easeOutCubic(RpgRules.clamp(progress / 0.52f, 0f, 1f));
+            centerX = lerp(effect.x, effect.targetX, travel);
+            centerY = lerp(effect.y, effect.targetY, travel);
+            width = Math.max(330f, Math.abs(effect.targetX - effect.x) + 250f);
+            height = 260f;
+            flip = effect.targetX < effect.x;
+        } else if (effect.kind == FX_RAIN) {
+            atlasIndex = 4;
+            animationAtlas = bloodArtsAnimationAtlasB;
+            animationRow = 0;
+            centerY = effect.y - 108f;
+            width = 330f;
+            height = 410f;
+        } else if (effect.kind == FX_CHAIN) {
+            atlasIndex = 5;
+            animationAtlas = bloodArtsAnimationAtlasB;
+            animationRow = 1;
+            centerX = (effect.x + effect.targetX) * 0.5f;
+            centerY = (effect.y + effect.targetY) * 0.5f - 18f;
+            width = Math.max(280f, Math.abs(effect.targetX - effect.x) + 230f);
+            height = 245f;
+            flip = effect.targetX < effect.x;
+        } else if (effect.kind == FX_PILLAR) {
+            atlasIndex = 6;
+            animationAtlas = bloodArtsAnimationAtlasB;
+            animationRow = 2;
+            centerY = GROUND_Y - 220f;
+            width = 330f;
+            height = 470f;
+        } else if (effect.kind == FX_ECLIPSE) {
+            atlasIndex = 7;
+            animationAtlas = bloodArtsAnimationAtlasB;
+            animationRow = 3;
+            width = 680f;
+            height = 650f;
+        } else {
+            return false;
+        }
+
+        if (animationAtlas != null && !animationAtlas.isRecycled()) {
+            int firstFrame = VfxAnimationRules.firstFrame(progress);
+            int secondFrame = VfxAnimationRules.secondFrame(progress);
+            float blend = VfxAnimationRules.frameBlend(progress);
+            int layerAlpha = Math.round((foreground ? 250f : 58f) * fade);
+            float layerScale = foreground ? 1f : 1.045f;
+
+            if (foreground && (effect.kind == FX_RUSH || effect.kind == FX_SPEAR_IMPACT)) {
+                drawBloodArtAnimationCell(canvas, animationAtlas, animationRow,
+                        Math.max(0, firstFrame - 1),
+                        centerX - effect.direction * 34f, centerY,
+                        width, height, flip, Math.round(62f * fade), rotation);
+            }
+            drawBloodArtAnimationCell(canvas, animationAtlas, animationRow, firstFrame,
+                    centerX, centerY, width * layerScale, height * layerScale,
+                    flip, Math.round(layerAlpha * (1f - blend)), rotation);
+            if (secondFrame != firstFrame && blend > 0f) {
+                drawBloodArtAnimationCell(canvas, animationAtlas, animationRow, secondFrame,
+                        centerX, centerY, width * layerScale, height * layerScale,
+                        flip, Math.round(layerAlpha * blend), rotation);
+            }
+            return true;
+        }
+
+        if (!staticAtlasAvailable) {
+            return false;
+        }
+
+        float appear = easeOutCubic(RpgRules.clamp(progress / 0.24f, 0f, 1f));
+        float pulse = 1f + (float) Math.sin(progress * Math.PI) * 0.09f;
+        float animatedScale = (0.56f + appear * 0.44f) * pulse;
+        if (effect.kind == FX_RUSH || effect.kind == FX_SPEAR_IMPACT) {
+            animatedScale = 0.78f + appear * 0.3f;
+        } else if (effect.kind == FX_PILLAR || effect.kind == FX_RAIN) {
+            animatedScale = 0.48f + appear * 0.58f;
+        }
+        if (!foreground) {
+            drawBloodArtAtlasCell(canvas, atlasIndex, centerX, centerY,
+                    width * animatedScale * 1.12f, height * animatedScale * 1.12f,
+                    flip, Math.round(72f * fade), rotation);
+        } else {
+            drawBloodArtAtlasCell(canvas, atlasIndex, centerX, centerY,
+                    width * animatedScale, height * animatedScale,
+                    flip, Math.round(250f * fade), rotation);
+        }
+        return true;
+    }
+
+    private void drawBloodArtAtlasCell(Canvas canvas, int index, float centerX, float centerY,
+                                       float width, float height, boolean flip,
+                                       int alpha, float rotation) {
+        if (bloodArtsAtlas == null || bloodArtsAtlas.isRecycled()) {
+            return;
+        }
+        int safeIndex = RpgRules.clamp(index, 0, 7);
+        int column = safeIndex % 4;
+        int row = safeIndex / 4;
+        int cellWidth = bloodArtsAtlas.getWidth() / 4;
+        int cellHeight = bloodArtsAtlas.getHeight() / 2;
+        int left = column * cellWidth;
+        int top = row * cellHeight;
+        int right = column == 3 ? bloodArtsAtlas.getWidth() : left + cellWidth;
+        int bottom = row == 1 ? bloodArtsAtlas.getHeight() : top + cellHeight;
+        atlasSource.set(left, top, right, bottom);
+        spriteDestination.set(-width * 0.5f, -height * 0.5f,
+                width * 0.5f, height * 0.5f);
+        canvas.save();
+        canvas.translate(centerX, centerY);
+        canvas.rotate(rotation);
+        canvas.scale(flip ? -1f : 1f, 1f);
+        paint.setAlpha(RpgRules.clamp(alpha, 0, 255));
+        canvas.drawBitmap(bloodArtsAtlas, atlasSource, spriteDestination, paint);
+        paint.setAlpha(255);
+        canvas.restore();
+    }
+
+    private void drawBloodArtAnimationCell(Canvas canvas, Bitmap atlas, int row, int frame,
+                                            float centerX, float centerY,
+                                            float width, float height, boolean flip,
+                                            int alpha, float rotation) {
+        if (atlas == null || atlas.isRecycled() || alpha <= 0) {
+            return;
+        }
+        int safeRow = RpgRules.clamp(row, 0, 3);
+        int safeFrame = RpgRules.clamp(frame, 0, VfxAnimationRules.FRAME_COUNT - 1);
+        int cellWidth = atlas.getWidth() / VfxAnimationRules.FRAME_COUNT;
+        int cellHeight = atlas.getHeight() / 4;
+        int inset = 2;
+        int left = safeFrame * cellWidth + inset;
+        int top = safeRow * cellHeight + inset;
+        int right = safeFrame == VfxAnimationRules.FRAME_COUNT - 1
+                ? atlas.getWidth() - inset : left + cellWidth - inset * 2;
+        int bottom = safeRow == 3 ? atlas.getHeight() - inset
+                : top + cellHeight - inset * 2;
+        atlasSource.set(left, top, right, bottom);
+        spriteDestination.set(-width * 0.5f, -height * 0.5f,
+                width * 0.5f, height * 0.5f);
+        canvas.save();
+        canvas.translate(centerX, centerY);
+        canvas.rotate(rotation);
+        canvas.scale(flip ? -1f : 1f, 1f);
+        paint.setAlpha(RpgRules.clamp(alpha, 0, 255));
+        canvas.drawBitmap(atlas, atlasSource, spriteDestination, paint);
+        paint.setAlpha(255);
+        canvas.restore();
+    }
+
     private void drawParticles(Canvas canvas) {
+        paint.setStrokeCap(Paint.Cap.ROUND);
         for (Particle particle : particles) {
             float fraction = RpgRules.clamp(particle.life / particle.maxLife, 0f, 1f);
             paint.setColor(withAlpha(particle.color, Math.round(255f * fraction)));
-            canvas.drawCircle(particle.x, particle.y,
-                    particle.radius * (0.35f + fraction * 0.65f), paint);
+            if (particle.style == 1) {
+                float speed = (float) Math.sqrt(particle.velocityX * particle.velocityX
+                        + particle.velocityY * particle.velocityY);
+                float inverse = speed <= 0.01f ? 0f : 1f / speed;
+                float length = Math.min(34f, 7f + speed * 0.055f) * fraction;
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1.2f, particle.radius * fraction));
+                canvas.drawLine(particle.x, particle.y,
+                        particle.x - particle.velocityX * inverse * length,
+                        particle.y - particle.velocityY * inverse * length, paint);
+                paint.setStyle(Paint.Style.FILL);
+            } else {
+                canvas.drawCircle(particle.x, particle.y,
+                        particle.radius * (0.35f + fraction * 0.65f), paint);
+            }
         }
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawFloatingTexts(Canvas canvas) {
         textPaint.setTypeface(uiBoldTypeface);
-        textPaint.setTextSize(24f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
         for (FloatingText floatingText : floatingTexts) {
             float fraction = RpgRules.clamp(floatingText.life / floatingText.maxLife, 0f, 1f);
-            textPaint.setColor(withAlpha(floatingText.color, Math.round(255f * fraction)));
-            drawTextWithShadow(canvas, floatingText.text, floatingText.x, floatingText.y, textPaint);
+            float elapsed = 1f - fraction;
+            float baseSize = floatingText.emphasis >= 3 ? 42f
+                    : floatingText.emphasis == 2 ? 34f
+                    : floatingText.emphasis == 1 ? 27f : 24f;
+            float pop = 1f + floatingText.emphasis * 0.09f
+                    * (1f - smootherStep(RpgRules.clamp(elapsed / 0.24f, 0f, 1f)));
+            textPaint.setTextSize(baseSize * pop);
+            int alpha = Math.round(255f * fraction);
+            if (floatingText.emphasis > 0) {
+                textPaint.setStyle(Paint.Style.STROKE);
+                textPaint.setStrokeWidth(floatingText.emphasis >= 2 ? 7f : 5f);
+                textPaint.setColor(withAlpha(Color.rgb(25, 3, 10), alpha));
+                canvas.drawText(floatingText.text, floatingText.x, floatingText.y, textPaint);
+                textPaint.setStyle(Paint.Style.FILL);
+                textPaint.setColor(withAlpha(floatingText.color, alpha));
+                canvas.drawText(floatingText.text, floatingText.x, floatingText.y, textPaint);
+            } else {
+                textPaint.setColor(withAlpha(floatingText.color, alpha));
+                drawTextWithShadow(canvas, floatingText.text,
+                        floatingText.x, floatingText.y, textPaint);
+            }
         }
+        textPaint.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawSealRoadmap(Canvas canvas) {
+        RectF bounds = new RectF(18f, GameUiLayout.STORY_ROUTE_TOP,
+                702f, GameUiLayout.STORY_ROUTE_BOTTOM);
+        paint.setColor(Color.argb(208, 6, 8, 17));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor(Color.argb(105, 210, 172, 92));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(12f);
+        textPaint.setLetterSpacing(0.12f);
+        textPaint.setColor(GOLD);
+        canvas.drawText("BLOOD SEAL", 36f, 316f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setColor(Color.rgb(206, 211, 224));
+        canvas.drawText(CombatStory.sealObjective(progress.region), 36f, 340f, textPaint);
+
+        int clearedCount = progress.wave - 1 + (waveComplete ? 1 : 0);
+        float firstX = 298f;
+        float step = 78f;
+        float centerY = 325f;
+        paint.setStrokeWidth(3f);
+        for (int index = 0; index < CombatStory.WAVE_COUNT - 1; index++) {
+            float fromX = firstX + index * step;
+            boolean passed = index < clearedCount;
+            paint.setColor(withAlpha(passed ? CRIMSON : Color.rgb(80, 86, 103),
+                    passed ? 190 : 125));
+            canvas.drawRect(fromX + 12f, centerY - 1.5f,
+                    fromX + step - 12f, centerY + 1.5f, paint);
+        }
+        for (int index = 0; index < CombatStory.WAVE_COUNT; index++) {
+            float x = firstX + index * step;
+            boolean completed = index < clearedCount;
+            boolean current = index == clearedCount && clearedCount < CombatStory.WAVE_COUNT;
+            int nodeColor = completed ? CRIMSON : current ? GOLD : Color.rgb(84, 91, 108);
+            if (current) {
+                float pulse = 0.5f + 0.5f * (float) Math.sin(ambientClock * 5.5f);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(withAlpha(GOLD, Math.round(100f + pulse * 100f)));
+                canvas.drawCircle(x, centerY, 15f + pulse * 2f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+            paint.setColor(withAlpha(nodeColor, completed || current ? 235 : 135));
+            if (index == CombatStory.WAVE_COUNT - 1) {
+                effectPath.reset();
+                effectPath.moveTo(x, centerY - 12f);
+                effectPath.lineTo(x + 12f, centerY);
+                effectPath.lineTo(x, centerY + 12f);
+                effectPath.lineTo(x - 12f, centerY);
+                effectPath.close();
+                canvas.drawPath(effectPath, paint);
+            } else {
+                canvas.drawCircle(x, centerY, 11f, paint);
+            }
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            textPaint.setTypeface(uiBoldTypeface);
+            textPaint.setTextSize(index == CombatStory.WAVE_COUNT - 1 ? 9f : 11f);
+            textPaint.setColor(completed || current ? Color.WHITE : Color.rgb(150, 155, 168));
+            canvas.drawText(index == CombatStory.WAVE_COUNT - 1 ? "B" : Integer.toString(index + 1),
+                    x, centerY + 4f, textPaint);
+        }
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawCombatNarrative(Canvas canvas) {
+        if (combatNarrativeTimer <= 0f || combatNarrativeLine.isEmpty()
+                || bossIntroTimer > 0f || waveBannerTimer > 0f) {
+            return;
+        }
+        float progress = 1f - combatNarrativeTimer
+                / Math.max(0.01f, combatNarrativeDuration);
+        float fade = smootherStep(RpgRules.clamp(progress / 0.14f, 0f, 1f))
+                * smootherStep(RpgRules.clamp(combatNarrativeTimer / 0.28f, 0f, 1f));
+        float slide = 24f * (1f - easeOutCubic(
+                RpgRules.clamp(progress / 0.22f, 0f, 1f)));
+        int accent = narrativeAccent(combatNarrativeSpeaker);
+        float left = GameUiLayout.COMBAT_NARRATIVE_LEFT + slide;
+        float top = GameUiLayout.COMBAT_NARRATIVE_TOP;
+        float right = GameUiLayout.COMBAT_NARRATIVE_RIGHT + slide;
+        float bottom = GameUiLayout.COMBAT_NARRATIVE_BOTTOM;
+
+        paint.setShader(new LinearGradient(left, 0f, right, 0f,
+                new int[]{withAlpha(Color.rgb(5, 7, 15), Math.round(238f * fade)),
+                        withAlpha(darken(accent, 0.48f), Math.round(218f * fade)),
+                        withAlpha(Color.rgb(5, 7, 15), Math.round(226f * fade))},
+                new float[]{0f, 0.58f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(new RectF(left, top, right, bottom), 18f, 18f, paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(withAlpha(accent, Math.round(168f * fade)));
+        canvas.drawRoundRect(new RectF(left, top, right, bottom), 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        float markX = left + 30f;
+        float markY = (top + bottom) * 0.5f;
+        paint.setColor(withAlpha(accent, Math.round(230f * fade)));
+        effectPath.reset();
+        effectPath.moveTo(markX, markY - 14f);
+        effectPath.lineTo(markX + 12f, markY);
+        effectPath.lineTo(markX, markY + 14f);
+        effectPath.lineTo(markX - 12f, markY);
+        effectPath.close();
+        canvas.drawPath(effectPath, paint);
+
+        float textLeft = left + 56f;
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setLetterSpacing(0.08f);
+        textPaint.setColor(withAlpha(accent, Math.round(245f * fade)));
+        canvas.drawText("피의 기억  ·  " + combatNarrativeSpeaker,
+                textLeft, top + 27f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(18f);
+        textPaint.setColor(withAlpha(Color.rgb(236, 239, 246), Math.round(255f * fade)));
+        drawCompactWrappedText(canvas, combatNarrativeLine,
+                textLeft, top + 57f, right - textLeft - 20f, 24f, 2);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawCompactWrappedText(Canvas canvas, String text, float left, float top,
+                                        float width, float lineHeight, int maximumLines) {
+        int start = 0;
+        int line = 0;
+        while (start < text.length() && line < maximumLines) {
+            int count = textPaint.breakText(text, start, text.length(), true, width, null);
+            if (count <= 0) {
+                break;
+            }
+            int end = Math.min(text.length(), start + count);
+            if (end < text.length()) {
+                int space = text.lastIndexOf(' ', end - 1);
+                if (space > start) {
+                    end = space;
+                }
+            }
+            canvas.drawText(text.substring(start, end).trim(), left,
+                    top + line * lineHeight, textPaint);
+            start = end;
+            while (start < text.length() && text.charAt(start) == ' ') {
+                start++;
+            }
+            line++;
+        }
+    }
+
+    private void drawHitCounter(Canvas canvas) {
+        if (hitCombo < 2 || hitComboTimer <= 0f) {
+            return;
+        }
+        float fade = Math.min(1f, hitComboTimer / 0.26f);
+        float scale = 1f + hitComboPulse * 0.16f;
+        canvas.save();
+        canvas.scale(scale, scale, 78f, 424f);
+        paint.setShader(new LinearGradient(22f, 0f, 188f, 0f,
+                withAlpha(CRIMSON, Math.round(120f * fade)), Color.TRANSPARENT,
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(20f, 451f, 190f, 455f, paint);
+        paint.setShader(null);
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(hitCombo >= 100 ? 49f : 58f);
+        textPaint.setColor(withAlpha(hitCombo >= 30 ? GOLD : Color.WHITE,
+                Math.round(255f * fade)));
+        drawTextWithShadow(canvas, Integer.toString(hitCombo), 28f, 430f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(17f);
+        textPaint.setLetterSpacing(0.16f);
+        textPaint.setColor(withAlpha(CRIMSON, Math.round(235f * fade)));
+        canvas.drawText("HIT", 32f, 449f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        canvas.restore();
+    }
+
+    private void drawSkillCallout(Canvas canvas) {
+        if (skillCalloutTimer <= 0f || skillCalloutText.isEmpty()
+                || combatNarrativeTimer > 0f || bossIntroTimer > 0f
+                || waveBannerTimer > 0f) {
+            return;
+        }
+        float progress = 1f - skillCalloutTimer / Math.max(0.01f, skillCalloutDuration);
+        float fade = smootherStep(RpgRules.clamp(progress / 0.18f, 0f, 1f))
+                * smootherStep(RpgRules.clamp(skillCalloutTimer / 0.18f, 0f, 1f));
+        float slide = 22f - easeOutCubic(RpgRules.clamp(progress / 0.28f, 0f, 1f)) * 18f;
+        float left = GameUiLayout.COMBAT_NARRATIVE_LEFT;
+        float right = GameUiLayout.COMBAT_NARRATIVE_RIGHT;
+        paint.setShader(new LinearGradient(left, 0f, right, 0f,
+                new int[]{withAlpha(Color.rgb(5, 7, 15), Math.round(220f * fade)),
+                        withAlpha(skillCalloutColor, Math.round(82f * fade)),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.42f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(left, 368f, right, 440f, paint);
+        paint.setShader(null);
+        paint.setColor(withAlpha(skillCalloutColor, Math.round(230f * fade)));
+        canvas.drawRect(left + 6f, 374f, left + 11f, 434f, paint);
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(13f);
+        textPaint.setLetterSpacing(0.14f);
+        textPaint.setColor(withAlpha(Color.rgb(215, 220, 232), Math.round(220f * fade)));
+        canvas.drawText("BLOOD ART", left + 24f + slide, 394f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(29f);
+        textPaint.setColor(withAlpha(Color.WHITE, Math.round(255f * fade)));
+        drawTextWithShadow(canvas, skillCalloutText, left + 24f + slide, 427f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawBossIntro(Canvas canvas) {
+        if (bossIntroTimer <= 0f || bossIntroName.isEmpty()) {
+            return;
+        }
+        float progress = 1f - bossIntroTimer / Math.max(0.01f, bossIntroDuration);
+        float enter = easeOutCubic(RpgRules.clamp(progress / 0.20f, 0f, 1f));
+        float exit = smootherStep(RpgRules.clamp(bossIntroTimer / 0.30f, 0f, 1f));
+        float fade = enter * exit;
+        float halfWidth = 342f * enter;
+        paint.setShader(new LinearGradient(18f, 0f, LOGICAL_WIDTH - 18f, 0f,
+                new int[]{Color.TRANSPARENT,
+                        withAlpha(Color.rgb(4, 5, 12), Math.round(240f * fade)),
+                        withAlpha(darken(bossIntroColor, 0.46f), Math.round(228f * fade)),
+                        withAlpha(Color.rgb(4, 5, 12), Math.round(240f * fade)),
+                        Color.TRANSPARENT},
+                new float[]{0f, 0.12f, 0.5f, 0.88f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(360f - halfWidth, 322f, 360f + halfWidth, 506f, paint);
+        paint.setShader(null);
+        paint.setColor(withAlpha(bossIntroColor, Math.round(215f * fade)));
+        canvas.drawRect(360f - halfWidth, 322f, 360f + halfWidth, 326f, paint);
+        canvas.drawRect(360f - halfWidth, 502f, 360f + halfWidth, 506f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        effectPath.reset();
+        effectPath.moveTo(360f, 340f);
+        effectPath.lineTo(380f, 362f);
+        effectPath.lineTo(360f, 384f);
+        effectPath.lineTo(340f, 362f);
+        effectPath.close();
+        canvas.drawPath(effectPath, paint);
+        paint.setStrokeWidth(1.5f);
+        canvas.drawCircle(360f, 362f, 11f, paint);
+        canvas.drawLine(168f, 362f, 320f, 362f, paint);
+        canvas.drawLine(400f, 362f, 552f, 362f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setLetterSpacing(0.22f);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(withAlpha(bossIntroColor, Math.round(240f * fade)));
+        canvas.drawText("BOSS ENCOUNTER", 360f, 412f, textPaint);
+        textPaint.setLetterSpacing(0f);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(38f);
+        textPaint.setColor(withAlpha(Color.WHITE, Math.round(255f * fade)));
+        drawTextWithShadow(canvas, bossIntroName, 360f, 454f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(15f);
+        textPaint.setLetterSpacing(0.08f);
+        textPaint.setColor(withAlpha(bossIntroColor, Math.round(230f * fade)));
+        canvas.drawText(bossEpithet(bossIntroVariant), 360f, 484f, textPaint);
+        textPaint.setLetterSpacing(0f);
     }
 
     private void drawHud(Canvas canvas) {
@@ -1683,7 +4322,8 @@ public final class GameView extends View {
         textPaint.setTextSize(18f);
         textPaint.setColor(Color.rgb(205, 211, 225));
         canvas.drawText(REGION_NAMES[progress.region] + "  ·  "
-                + (progress.wave == 5 ? "보스" : "웨이브 " + progress.wave), 126f, 48f, textPaint);
+                + (progress.wave == RpgRules.WAVES_PER_REGION
+                ? "보스" : "웨이브 " + progress.wave), 126f, 48f, textPaint);
         textPaint.setTextAlign(Paint.Align.RIGHT);
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(20f);
@@ -1705,11 +4345,19 @@ public final class GameView extends View {
 
         textPaint.setTextAlign(Paint.Align.LEFT);
         textPaint.setTypeface(uiBoldTypeface);
-        textPaint.setTextSize(18f);
+        boolean bossWave = progress.wave == RpgRules.WAVES_PER_REGION;
+        textPaint.setTextSize(bossWave ? 16f : 18f);
         textPaint.setColor(Color.rgb(224, 228, 238));
-        String objective = progress.wave == 5 ? "지역 보스 처치"
+        String objective = bossWave ? bossName(RpgRules.bossVariantForRegion(progress.region))
+                + "  " + defeatedThisWave + " / " + waveTarget
                 : "사냥 목표  " + defeatedThisWave + " / " + waveTarget;
         canvas.drawText("✦  " + objective, 34f, 197f, textPaint);
+        if (huntChain >= 2 && huntChainTimer > 0f) {
+            textPaint.setTextAlign(Paint.Align.RIGHT);
+            textPaint.setTextSize(16f);
+            textPaint.setColor(CYAN);
+            canvas.drawText("CHAIN ×" + huntChain, 686f, 197f, textPaint);
+        }
         textPaint.setTextAlign(Paint.Align.CENTER);
 
         drawCircleIcon(canvas, 669f, 48f, 29f, "Ⅱ", Color.rgb(50, 55, 72));
@@ -1724,6 +4372,19 @@ public final class GameView extends View {
         textPaint.setTextSize(20f);
         textPaint.setColor(GOLD);
         canvas.drawText("성장  ▲", 630f, 266f, textPaint);
+
+        paint.setColor(Color.argb(196, 10, 12, 24));
+        canvas.drawRoundRect(inventoryHudButton, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(150, 103, 218, 235));
+        canvas.drawRoundRect(inventoryHudButton, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(CYAN);
+        canvas.drawText("가방  " + inventoryCount() + "/" + RpgProgress.INVENTORY_SIZE,
+                inventoryHudButton.centerX(), 266f, textPaint);
 
         paint.setColor(Color.argb(165, 8, 10, 19));
         canvas.drawRoundRect(new RectF(18f, 232f, 375f, 286f), 18f, 18f, paint);
@@ -1742,32 +4403,59 @@ public final class GameView extends View {
         canvas.drawRect(0f, CONTROL_TOP, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
 
-        drawControlButton(canvas, 88f, 1110f, 64f, "◀", "이동", leftHeld,
-                0f, true, Color.rgb(57, 65, 86));
-        drawControlButton(canvas, 218f, 1110f, 64f, "▶", "이동", rightHeld,
-                0f, true, Color.rgb(57, 65, 86));
-        drawControlButton(canvas, 153f, 1212f, 47f, "✦", "대시 ∞", false,
-                0f, true, Color.rgb(103, 40, 70));
+        paint.setColor(Color.argb(205, 9, 15, 27));
+        RectF autoBattleBounds = new RectF(GameUiLayout.AUTO_BATTLE_LEFT,
+                GameUiLayout.AUTO_BATTLE_TOP, GameUiLayout.AUTO_BATTLE_RIGHT,
+                GameUiLayout.AUTO_BATTLE_BOTTOM);
+        canvas.drawRoundRect(autoBattleBounds, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(175, 93, 218, 235));
+        canvas.drawRoundRect(autoBattleBounds, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(20f);
+        textPaint.setColor(CYAN);
+        canvas.drawText("AUTO BATTLE  ●  자동 추격 · 기본 공격 · 혈술 연계", 360f,
+                GameUiLayout.AUTO_BATTLE_TEXT_Y, textPaint);
 
-        drawControlButton(canvas, 618f, 1084f, 72f, "A", "공격", false,
-                0f, true, CRIMSON);
-        drawControlButton(canvas, 505f, 1190f, 53f, "血", "혈창 20", false,
+        drawAutoSkillChip(canvas, 82f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_RUSH, "쇄도",
+                progress.level >= 3, rushCooldown, Color.rgb(222, 43, 83));
+        drawAutoSkillChip(canvas, 221f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_RAIN, "검우",
+                progress.level >= 6, rainCooldown, GOLD);
+        drawAutoSkillChip(canvas, 360f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_CHAIN, "사슬",
+                progress.level >= 9, chainCooldown, CYAN);
+        drawAutoSkillChip(canvas, 499f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_PILLAR, "기둥",
+                progress.level >= 12, pillarCooldown, Color.rgb(255, 88, 75));
+        drawAutoSkillChip(canvas, 638f, GameUiLayout.AUTO_SKILL_CENTER_Y, ICON_ECLIPSE, "월식",
+                progress.level >= 15, eclipseCooldown, VIOLET);
+
+        drawControlButton(canvas, 92f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 57f,
+                ICON_DASH, "개입 대시", false,
+                0f, true, Color.rgb(70, 83, 112));
+        drawControlButton(canvas, 292f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 60f,
+                ICON_SPEAR, "혈창 20",
+                queuedSkillAction == ACTION_SPEAR,
                 spearCooldown / 0.9f, true, Color.rgb(154, 24, 58));
-        drawControlButton(canvas, 400f, 1088f, 51f, "吸", "흡혈 30", false,
+        drawControlButton(canvas, 463f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 60f,
+                ICON_SIPHON, "흡혈 30",
+                queuedSkillAction == ACTION_SIPHON,
                 siphonCooldown / 4.8f, progress.level >= 4, Color.rgb(38, 119, 144));
-        drawControlButton(canvas, 618f, 1222f, 47f, "月", "폭발 55", false,
+        drawControlButton(canvas, 630f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 60f,
+                ICON_NOVA, "폭발 55",
+                queuedSkillAction == ACTION_NOVA,
                 novaCooldown / 7.5f, progress.level >= 7, Color.rgb(115, 53, 149));
 
         if (comboDisplayTimer > 0f && comboIndex > 0) {
             textPaint.setTypeface(uiBoldTypeface);
             textPaint.setTextSize(18f);
             textPaint.setColor(GOLD);
-            canvas.drawText((comboIndex + 1) + " COMBO", 618f, 974f, textPaint);
+            canvas.drawText((comboIndex + 1) + " AUTO COMBO", 360f, 946f, textPaint);
         }
     }
 
     private void drawControlButton(Canvas canvas, float x, float y, float radius,
-                                   String symbol, String label, boolean pressed,
+                                   int icon, String label, boolean pressed,
                                    float cooldownFraction, boolean enabled, int color) {
         float scale = pressed ? 0.93f : 1f;
         paint.setColor(Color.argb(100, 0, 0, 0));
@@ -1787,13 +4475,126 @@ public final class GameView extends View {
             canvas.drawArc(new RectF(x - radius, y - radius, x + radius, y + radius),
                     -90f, 360f * RpgRules.clamp(cooldownFraction, 0f, 1f), true, paint);
         }
-        textPaint.setTypeface(uiBoldTypeface);
-        textPaint.setTextSize(radius > 60f ? 31f : 25f);
-        textPaint.setColor(enabled ? Color.WHITE : Color.rgb(115, 118, 129));
-        canvas.drawText(symbol, x, y + 8f, textPaint);
+        drawSkillIcon(canvas, icon, x, y, radius * 0.58f,
+                enabled ? Color.WHITE : Color.rgb(115, 118, 129));
         textPaint.setTextSize(14f);
         textPaint.setColor(enabled ? Color.rgb(226, 229, 238) : Color.rgb(110, 112, 121));
-        canvas.drawText(label, x, y + radius + 19f, textPaint);
+        canvas.drawText(label, x, y + radius + GameUiLayout.MANUAL_SKILL_LABEL_OFFSET,
+                textPaint);
+    }
+
+    private void drawAutoSkillChip(Canvas canvas, float x, float y, int icon,
+                                   String label, boolean unlocked, float cooldown, int color) {
+        RectF bounds = new RectF(x - 62f, y - GameUiLayout.AUTO_SKILL_HALF_HEIGHT,
+                x + 62f, y + GameUiLayout.AUTO_SKILL_HALF_HEIGHT);
+        paint.setColor(Color.argb(unlocked ? 205 : 145, 10, 14, 25));
+        canvas.drawRoundRect(bounds, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.8f);
+        paint.setColor(withAlpha(unlocked ? color : Color.rgb(86, 91, 105), 165));
+        canvas.drawRoundRect(bounds, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        drawSkillIcon(canvas, icon, x - 37f, y, 14f,
+                unlocked ? color : Color.rgb(92, 97, 109));
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(13f);
+        textPaint.setColor(unlocked ? Color.rgb(225, 229, 238) : Color.rgb(113, 117, 128));
+        String state = !unlocked ? "LOCK" : cooldown <= 0f ? "AUTO" : oneDecimal(cooldown);
+        canvas.drawText(label, x - 15f, y - 2f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(9f);
+        textPaint.setColor(unlocked ? color : Color.rgb(102, 106, 118));
+        canvas.drawText(state, x - 15f, y + 13f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawSkillIcon(Canvas canvas, int icon, float x, float y,
+                               float size, int color) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeWidth(Math.max(2f, size * 0.13f));
+        paint.setColor(color);
+        if (icon == ICON_DASH) {
+            for (int wing = -1; wing <= 1; wing++) {
+                float offset = wing * size * 0.34f;
+                canvas.drawLine(x - size * 0.72f, y + offset,
+                        x - size * 0.12f, y, paint);
+                canvas.drawLine(x - size * 0.12f, y,
+                        x + size * 0.72f, y + offset, paint);
+            }
+        } else if (icon == ICON_SPEAR) {
+            canvas.drawLine(x - size * 0.72f, y + size * 0.58f,
+                    x + size * 0.64f, y - size * 0.58f, paint);
+            effectPath.reset();
+            effectPath.moveTo(x + size * 0.64f, y - size * 0.58f);
+            effectPath.lineTo(x + size * 0.12f, y - size * 0.43f);
+            effectPath.lineTo(x + size * 0.48f, y - size * 0.06f);
+            effectPath.close();
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawPath(effectPath, paint);
+        } else if (icon == ICON_SIPHON) {
+            effectPath.reset();
+            effectPath.moveTo(x, y - size * 0.76f);
+            effectPath.cubicTo(x - size * 0.62f, y - size * 0.12f,
+                    x - size * 0.48f, y + size * 0.7f, x, y + size * 0.72f);
+            effectPath.cubicTo(x + size * 0.48f, y + size * 0.7f,
+                    x + size * 0.62f, y - size * 0.12f, x, y - size * 0.76f);
+            canvas.drawPath(effectPath, paint);
+            canvas.drawLine(x - size * 0.62f, y - size * 0.58f,
+                    x - size * 0.27f, y - size * 0.18f, paint);
+            canvas.drawLine(x + size * 0.62f, y - size * 0.58f,
+                    x + size * 0.27f, y - size * 0.18f, paint);
+        } else if (icon == ICON_NOVA || icon == ICON_ECLIPSE) {
+            canvas.drawCircle(x, y, size * 0.48f, paint);
+            int rays = icon == ICON_ECLIPSE ? 10 : 8;
+            for (int ray = 0; ray < rays; ray++) {
+                float angle = ray * (float) Math.PI * 2f / rays;
+                canvas.drawLine(x + (float) Math.cos(angle) * size * 0.66f,
+                        y + (float) Math.sin(angle) * size * 0.66f,
+                        x + (float) Math.cos(angle) * size * 0.88f,
+                        y + (float) Math.sin(angle) * size * 0.88f, paint);
+            }
+            if (icon == ICON_ECLIPSE) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(darken(color, 0.2f));
+                canvas.drawCircle(x + size * 0.18f, y - size * 0.08f, size * 0.31f, paint);
+            }
+        } else if (icon == ICON_RUSH) {
+            for (int slash = -1; slash <= 1; slash++) {
+                float offset = slash * size * 0.34f;
+                canvas.drawLine(x - size * 0.68f, y + size * 0.52f + offset,
+                        x + size * 0.68f, y - size * 0.52f + offset, paint);
+            }
+        } else if (icon == ICON_RAIN) {
+            for (int blade = -1; blade <= 1; blade++) {
+                float offset = blade * size * 0.48f;
+                canvas.drawLine(x + offset - size * 0.28f, y - size * 0.7f,
+                        x + offset + size * 0.18f, y + size * 0.58f, paint);
+                canvas.drawLine(x + offset + size * 0.18f, y + size * 0.58f,
+                        x + offset - size * 0.08f, y + size * 0.37f, paint);
+            }
+        } else if (icon == ICON_CHAIN) {
+            effectBounds.set(x - size * 0.75f, y - size * 0.42f,
+                    x + size * 0.05f, y + size * 0.42f);
+            canvas.drawOval(effectBounds, paint);
+            effectBounds.set(x - size * 0.05f, y - size * 0.42f,
+                    x + size * 0.75f, y + size * 0.42f);
+            canvas.drawOval(effectBounds, paint);
+        } else if (icon == ICON_PILLAR) {
+            for (int flame = -1; flame <= 1; flame++) {
+                float offset = flame * size * 0.42f;
+                effectPath.reset();
+                effectPath.moveTo(x + offset - size * 0.22f, y + size * 0.72f);
+                effectPath.lineTo(x + offset, y - size * (flame == 0 ? 0.82f : 0.5f));
+                effectPath.lineTo(x + offset + size * 0.22f, y + size * 0.72f);
+                canvas.drawPath(effectPath, paint);
+            }
+        }
+        paint.setStrokeJoin(Paint.Join.MITER);
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawBar(Canvas canvas, float x, float y, float width, float height,
@@ -1833,15 +4634,18 @@ public final class GameView extends View {
             canvas.drawRoundRect(new RectF(92f, 324f, 628f, 430f), 18f, 18f, paint);
             textPaint.setTypeface(titleTypeface);
             textPaint.setTextSize(34f);
-            textPaint.setColor(withAlpha(progress.wave == 5 ? GOLD : Color.WHITE,
+            boolean bossWave = progress.wave == RpgRules.WAVES_PER_REGION;
+            textPaint.setColor(withAlpha(bossWave ? GOLD : Color.WHITE,
                     Math.round(255f * alpha)));
-            String primary = progress.wave == 5 ? "BOSS WAVE" : "WAVE " + progress.wave;
+            String primary = bossWave ? "BOSS WAVE" : "WAVE " + progress.wave;
             drawTextWithShadow(canvas, primary, 360f, 369f, textPaint);
             textPaint.setTypeface(uiTypeface);
             textPaint.setTextSize(17f);
             textPaint.setColor(withAlpha(Color.rgb(207, 211, 224), Math.round(255f * alpha)));
-            canvas.drawText(REGION_NAMES[progress.region] + " · "
-                    + REGION_SUBTITLES[progress.region], 360f, 402f, textPaint);
+            String subtitle = bossWave ? bossName(RpgRules.bossVariantForRegion(progress.region))
+                    + " · 호위 포함 " + waveTarget + "체"
+                    : REGION_NAMES[progress.region] + " · " + REGION_SUBTITLES[progress.region];
+            canvas.drawText(subtitle, 360f, 402f, textPaint);
         }
         if (levelBannerTimer > 0f) {
             float alpha = Math.min(1f, levelBannerTimer / 0.4f);
@@ -1894,15 +4698,15 @@ public final class GameView extends View {
         textPaint.setTextSize(66f);
         textPaint.setLetterSpacing(0.08f);
         textPaint.setColor(Color.rgb(237, 225, 216));
-        drawTextWithShadow(canvas, "BLOOD MOON", 360f, 378f, textPaint);
+        drawTextWithShadow(canvas, "VAYLORN", 360f, 378f, textPaint);
         textPaint.setLetterSpacing(0f);
         textPaint.setTextSize(34f);
         textPaint.setColor(CRIMSON);
-        drawTextWithShadow(canvas, "밤의 계승자", 360f, 430f, textPaint);
+        drawTextWithShadow(canvas, "IDLE BLOOD RPG", 360f, 430f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(19f);
         textPaint.setColor(Color.rgb(209, 215, 228));
-        canvas.drawText("세로형 2D 뱀파이어 성장 액션 RPG", 360f, 474f, textPaint);
+        canvas.drawText("세로형 방치 전투 · 횡스크롤 성장 RPG", 360f, 474f, textPaint);
 
         paint.setColor(Color.argb(175, 7, 9, 18));
         canvas.drawRoundRect(new RectF(96f, 526f, 624f, 685f), 24f, 24f, paint);
@@ -1914,12 +4718,12 @@ public final class GameView extends View {
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(21f);
         textPaint.setColor(GOLD);
-        canvas.drawText("사냥  ·  성장  ·  장비  ·  지역 해금", 360f, 572f, textPaint);
+        canvas.drawText("자동 사냥  ·  오프라인 성장  ·  장비  ·  스토리", 360f, 572f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(17f);
         textPaint.setColor(Color.rgb(194, 200, 214));
-        canvas.drawText("몬스터 무리를 사냥하고 영구 능력과 장비를 키우세요", 360f, 614f, textPaint);
-        canvas.drawText("장애물 없는 전장 · 무제한 대시 · 3개 지역 보스", 360f, 649f, textPaint);
+        canvas.drawText("카엘은 적에게 달려들며 기본 공격과 혈술을 연계합니다", 360f, 614f, textPaint);
+        canvas.drawText("원할 때 버튼을 눌러 자동 전투에 직접 개입하세요", 360f, 649f, textPaint);
 
         if (continueAvailable) {
             drawMenuButton(canvas, continueButton,
@@ -1932,7 +4736,158 @@ public final class GameView extends View {
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(15f);
         textPaint.setColor(Color.rgb(143, 150, 167));
-        canvas.drawText("v3.0.1  ·  진행도 자동 저장", 360f, 1120f, textPaint);
+        canvas.drawText("v4.16.0 DEMO  ·  BLOOD MEMORY", 360f, 1120f, textPaint);
+    }
+
+    private void drawOfflineReward(Canvas canvas) {
+        drawOverlay(canvas, 210);
+        RectF panel = new RectF(54f, 260f, 666f, 1040f);
+        paint.setColor(Color.argb(248, 7, 9, 19));
+        canvas.drawRoundRect(panel, 32f, 32f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(Color.argb(190, 211, 39, 75));
+        canvas.drawRoundRect(panel, 32f, 32f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setShader(new RadialGradient(360f, 350f, 190f,
+                Color.argb(90, 205, 30, 67), Color.TRANSPARENT,
+                Shader.TileMode.CLAMP));
+        canvas.drawCircle(360f, 350f, 190f, paint);
+        paint.setShader(null);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(17f);
+        textPaint.setColor(CRIMSON);
+        canvas.drawText("OFFLINE HUNT REPORT", 360f, 322f, textPaint);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(39f);
+        textPaint.setColor(Color.WHITE);
+        drawTextWithShadow(canvas, "밤에도 사냥은 계속됐다", 360f, 383f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(Color.rgb(190, 201, 220));
+        canvas.drawText("자리를 비운 동안 카엘이 모은 전리품입니다", 360f, 427f, textPaint);
+
+        paint.setColor(Color.argb(185, 16, 20, 34));
+        canvas.drawRoundRect(new RectF(100f, 474f, 620f, 548f), 20f, 20f, paint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(20f);
+        textPaint.setColor(CYAN);
+        canvas.drawText("사냥 시간  ·  " + formatOfflineDuration(offlineElapsedSeconds),
+                360f, 521f, textPaint);
+
+        RectF goldCard = new RectF(100f, 580f, 350f, 754f);
+        RectF xpCard = new RectF(370f, 580f, 620f, 754f);
+        drawOfflineRewardCard(canvas, goldCard, "◆", "골드",
+                "+" + formatNumber(offlineGoldReward), GOLD);
+        drawOfflineRewardCard(canvas, xpCard, "✦", "경험치",
+                "+" + formatNumber(offlineXpReward), CYAN);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(20f);
+        textPaint.setColor(offlineLevelsGained > 0 ? GOLD : Color.rgb(183, 191, 207));
+        canvas.drawText(offlineLevelsGained > 0
+                        ? "레벨 " + offlineLevelsGained + " 상승  ·  현재 Lv." + progress.level
+                        : "현재 Lv." + progress.level + "  ·  다음 성장에 반영 완료",
+                360f, 813f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(15f);
+        textPaint.setColor(Color.rgb(137, 147, 167));
+        canvas.drawText("보상은 최대 8시간까지 누적됩니다", 360f, 854f, textPaint);
+        drawMenuButton(canvas, offlineClaimButton, "보상 받고 모험 계속", true);
+    }
+
+    private void drawOfflineRewardCard(Canvas canvas, RectF bounds, String icon,
+                                       String label, String value, int color) {
+        paint.setColor(Color.argb(205, 13, 17, 29));
+        canvas.drawRoundRect(bounds, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(withAlpha(color, 155));
+        canvas.drawRoundRect(bounds, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(28f);
+        textPaint.setColor(color);
+        canvas.drawText(icon, bounds.centerX(), bounds.top + 49f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.rgb(176, 185, 202));
+        canvas.drawText(label, bounds.centerX(), bounds.top + 88f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(25f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText(value, bounds.centerX(), bounds.top + 132f, textPaint);
+    }
+
+    private void drawStory(Canvas canvas) {
+        paint.setColor(Color.argb(205, 4, 6, 14));
+        canvas.drawRoundRect(new RectF(34f, 58f, 686f, 176f), 24f, 24f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(155, 105, 221, 240));
+        canvas.drawRoundRect(new RectF(34f, 58f, 686f, 176f), 24f, 24f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(18f);
+        textPaint.setColor(CYAN);
+        canvas.drawText(STORY_CHAPTERS[storyChapter], 360f, 103f, textPaint);
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(32f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText("카엘 아르덴의 기억", 360f, 148f, textPaint);
+
+        paint.setColor(Color.argb(239, 5, 7, 16));
+        canvas.drawRoundRect(new RectF(34f, 828f, 686f, 1186f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(Color.argb(175, 197, 31, 70));
+        canvas.drawRoundRect(new RectF(34f, 828f, 686f, 1186f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(24f);
+        textPaint.setColor(storyFinale ? GOLD : CRIMSON);
+        canvas.drawText(STORY_SPEAKERS[storyChapter][storyLine], 76f, 892f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(25f);
+        textPaint.setColor(Color.rgb(231, 234, 242));
+        drawWrappedText(canvas, STORY_LINES[storyChapter][storyLine],
+                76f, 950f, 568f, 43f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.rgb(151, 189, 203));
+        canvas.drawText("화면을 눌러 계속  ·  " + (storyLine + 1) + " / "
+                + STORY_LINES[storyChapter].length, 360f, 1148f, textPaint);
+    }
+
+    private void drawWrappedText(Canvas canvas, String text, float left, float top,
+                                 float width, float lineHeight) {
+        int start = 0;
+        float y = top;
+        while (start < text.length() && y < 1115f) {
+            int count = textPaint.breakText(text, start, text.length(), true, width, null);
+            if (count <= 0) {
+                break;
+            }
+            int end = Math.min(text.length(), start + count);
+            if (end < text.length()) {
+                int space = text.lastIndexOf(' ', end - 1);
+                if (space > start) {
+                    end = space;
+                }
+            }
+            canvas.drawText(text.substring(start, end).trim(), left, y, textPaint);
+            start = end;
+            while (start < text.length() && text.charAt(start) == ' ') {
+                start++;
+            }
+            y += lineHeight;
+        }
     }
 
     private void drawPause(Canvas canvas) {
@@ -2010,7 +4965,7 @@ public final class GameView extends View {
         textPaint.setTypeface(uiBoldTypeface);
         textPaint.setTextSize(19f);
         textPaint.setColor(GOLD);
-        canvas.drawText("자동 장착 장비", 72f, 970f, textPaint);
+        canvas.drawText("장착 장비", 72f, 970f, textPaint);
         textPaint.setTypeface(uiTypeface);
         textPaint.setTextSize(17f);
         textPaint.setColor(Color.rgb(210, 215, 228));
@@ -2019,10 +4974,165 @@ public final class GameView extends View {
         canvas.drawText("혈석  +" + progress.relicPower + " 혈기", 468f, 1008f, textPaint);
         textPaint.setTextSize(14f);
         textPaint.setColor(Color.rgb(142, 151, 171));
-        canvas.drawText("더 강한 전리품은 즉시 장착되고, 낮은 장비는 골드로 분해됩니다", 72f, 1045f, textPaint);
+        canvas.drawText("자동 혈술: 쇄도 · 검우 · 사슬 · 기둥 · 개기월식", 72f, 1045f, textPaint);
         textPaint.setTextAlign(Paint.Align.CENTER);
         drawMenuButton(canvas, growthCloseButton,
                 growthReturnScreen == Screen.PAUSED ? "일시정지로" : "전투로 복귀", true);
+    }
+
+    private void drawInventory(Canvas canvas) {
+        drawOverlay(canvas, 220);
+        paint.setColor(Color.argb(250, 7, 10, 20));
+        canvas.drawRoundRect(new RectF(24f, 58f, 696f, 1170f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.argb(175, 91, 213, 232));
+        canvas.drawRoundRect(new RectF(24f, 58f, 696f, 1170f), 30f, 30f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        textPaint.setTypeface(titleTypeface);
+        textPaint.setTextSize(42f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText("혈월 가방", 360f, 116f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(18f);
+        textPaint.setColor(GOLD);
+        canvas.drawText("◆ " + formatNumber(progress.gold) + "   ·   전투력 " + combatPower(),
+                360f, 154f, textPaint);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(Color.rgb(215, 222, 234));
+        canvas.drawText("장착 장비", 52f, 207f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        drawEquippedItem(canvas, 0, new RectF(52f, 228f, 232f, 420f), progress.weaponPower);
+        drawEquippedItem(canvas, 1, new RectF(270f, 228f, 450f, 420f), progress.armorPower);
+        drawEquippedItem(canvas, 2, new RectF(488f, 228f, 668f, 420f), progress.relicPower);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(19f);
+        textPaint.setColor(Color.rgb(215, 222, 234));
+        canvas.drawText("전리품  " + inventoryCount() + "/" + RpgProgress.INVENTORY_SIZE,
+                52f, 474f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        for (int index = 0; index < RpgProgress.INVENTORY_SIZE; index++) {
+            drawInventoryItem(canvas, index, inventorySlotBounds(index),
+                    progress.inventory[index], index == selectedInventoryItem);
+        }
+
+        paint.setColor(Color.argb(185, 13, 18, 31));
+        canvas.drawRoundRect(new RectF(52f, 956f, 668f, 1028f), 18f, 18f, paint);
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(17f);
+        if (selectedInventoryItem >= 0
+                && progress.inventory[selectedInventoryItem] != 0) {
+            int item = progress.inventory[selectedInventoryItem];
+            int slot = itemSlot(item);
+            int power = itemPower(item);
+            int difference = power - equippedPower(slot);
+            textPaint.setColor(rarityColor(itemRarity(item)));
+            canvas.drawText(itemName(slot, itemRarity(item)), 72f, 986f, textPaint);
+            textPaint.setTypeface(uiTypeface);
+            textPaint.setTextSize(15f);
+            textPaint.setColor(difference > 0 ? CYAN : Color.rgb(184, 192, 208));
+            canvas.drawText(itemEffect(slot, power) + "   ·   현재 장비 대비 "
+                    + (difference >= 0 ? "+" : "") + difference, 72f, 1012f, textPaint);
+        } else {
+            textPaint.setColor(Color.rgb(168, 177, 195));
+            canvas.drawText("전리품을 선택하면 능력치 비교와 관리가 표시됩니다", 72f, 998f, textPaint);
+        }
+        textPaint.setTextAlign(Paint.Align.CENTER);
+
+        String actionLabel = "아이템 선택";
+        boolean actionEnabled = selectedInventoryItem >= 0
+                && progress.inventory[selectedInventoryItem] != 0;
+        if (actionEnabled) {
+            int item = progress.inventory[selectedInventoryItem];
+            int power = itemPower(item);
+            actionLabel = power > equippedPower(itemSlot(item)) ? "선택 장비 착용"
+                    : "분해  ·  +" + salvageValue(item) + " 골드";
+        }
+        drawMenuButton(canvas, inventoryActionButton, actionLabel, actionEnabled);
+        drawMenuButton(canvas, inventoryCloseButton,
+                inventoryReturnScreen == Screen.PAUSED ? "일시정지로" : "전투로", true);
+    }
+
+    private void drawEquippedItem(Canvas canvas, int slot, RectF bounds, int power) {
+        int rarity = rarityFromPower(power);
+        paint.setColor(Color.argb(205, 13, 17, 29));
+        canvas.drawRoundRect(bounds, 20f, 20f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(withAlpha(rarityColor(rarity), 190));
+        canvas.drawRoundRect(bounds, 20f, 20f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        drawItemSymbol(canvas, slot, bounds.centerX(), bounds.top + 55f,
+                30f, rarityColor(rarity));
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText(slotName(slot), bounds.centerX(), bounds.top + 105f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setColor(rarityColor(rarity));
+        canvas.drawText(power > 0 ? itemName(slot, rarity) : "빈 슬롯",
+                bounds.centerX(), bounds.top + 134f, textPaint);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(Color.rgb(215, 222, 235));
+        canvas.drawText(power > 0 ? itemEffect(slot, power) : "효과 없음",
+                bounds.centerX(), bounds.top + 166f, textPaint);
+    }
+
+    private void drawInventoryItem(Canvas canvas, int index, RectF bounds,
+                                   int item, boolean selected) {
+        int rarity = item == 0 ? 0 : itemRarity(item);
+        paint.setColor(selected ? Color.argb(235, 24, 33, 52) : Color.argb(190, 12, 16, 28));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(selected ? 4f : 2f);
+        paint.setColor(item == 0 ? Color.argb(80, 125, 135, 154)
+                : withAlpha(rarityColor(rarity), selected ? 240 : 150));
+        canvas.drawRoundRect(bounds, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        if (item == 0) {
+            textPaint.setTypeface(uiTypeface);
+            textPaint.setTextSize(16f);
+            textPaint.setColor(Color.rgb(103, 112, 131));
+            canvas.drawText("빈 칸", bounds.centerX(), bounds.centerY() + 6f, textPaint);
+            return;
+        }
+        int slot = itemSlot(item);
+        drawItemSymbol(canvas, slot, bounds.left + 42f, bounds.centerY(),
+                23f, rarityColor(rarity));
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(16f);
+        textPaint.setColor(rarityColor(rarity));
+        canvas.drawText(itemName(slot, rarity), bounds.left + 82f, bounds.top + 42f, textPaint);
+        textPaint.setTypeface(uiTypeface);
+        textPaint.setTextSize(14f);
+        textPaint.setColor(Color.rgb(205, 213, 226));
+        canvas.drawText(itemEffect(slot, itemPower(item)), bounds.left + 82f,
+                bounds.top + 72f, textPaint);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void drawItemSymbol(Canvas canvas, int slot, float x, float y,
+                                float radius, int color) {
+        paint.setShader(new RadialGradient(x - radius * 0.25f, y - radius * 0.3f,
+                radius * 1.35f, withAlpha(color, 235), darken(color, 0.35f),
+                Shader.TileMode.CLAMP));
+        canvas.drawCircle(x, y, radius, paint);
+        paint.setShader(null);
+        textPaint.setTypeface(uiBoldTypeface);
+        textPaint.setTextSize(radius * 0.92f);
+        textPaint.setColor(Color.WHITE);
+        canvas.drawText(slot == 0 ? "⚔" : slot == 1 ? "◇" : "◆", x, y + radius * 0.32f,
+                textPaint);
     }
 
     private void drawStatUpgrade(Canvas canvas, int index, String title, String effect,
@@ -2179,14 +5289,44 @@ public final class GameView extends View {
 
     private void drawVignette(Canvas canvas) {
         paint.setShader(new RadialGradient(LOGICAL_WIDTH * 0.5f, LOGICAL_HEIGHT * 0.45f,
-                690f, Color.TRANSPARENT, Color.argb(175, 0, 0, 4), Shader.TileMode.CLAMP));
+                760f, Color.TRANSPARENT, Color.argb(88, 0, 0, 4), Shader.TileMode.CLAMP));
         canvas.drawRect(0f, 0f, LOGICAL_WIDTH, LOGICAL_HEIGHT, paint);
         paint.setShader(null);
     }
 
+    private float heroRenderX() {
+        return lerp(hero.previousX, hero.x, renderInterpolation);
+    }
+
+    private float enemyRenderX(Enemy enemy) {
+        return lerp(enemy.previousX, enemy.x, renderInterpolation);
+    }
+
+    private void drawAtlasBlend(Canvas canvas, Bitmap atlas, int columns, int rows,
+                                int firstColumn, int firstRow,
+                                int secondColumn, int secondRow, float blend,
+                                RectF destination, boolean flip, int alpha, int inset,
+                                boolean hitFlash) {
+        float easedBlend = RpgRules.clamp(blend, 0f, 1f);
+        if (firstColumn == secondColumn && firstRow == secondRow || easedBlend <= 0.015f) {
+            drawAtlasCell(canvas, atlas, columns, rows, firstColumn, firstRow,
+                    destination, flip, alpha, inset, hitFlash);
+            return;
+        }
+        if (easedBlend >= 0.985f) {
+            drawAtlasCell(canvas, atlas, columns, rows, secondColumn, secondRow,
+                    destination, flip, alpha, inset, hitFlash);
+            return;
+        }
+        drawAtlasCell(canvas, atlas, columns, rows, firstColumn, firstRow,
+                destination, flip, Math.round(alpha * (1f - easedBlend)), inset, hitFlash);
+        drawAtlasCell(canvas, atlas, columns, rows, secondColumn, secondRow,
+                destination, flip, Math.round(alpha * easedBlend), inset, hitFlash);
+    }
+
     private void drawAtlasCell(Canvas canvas, Bitmap atlas, int columns, int rows,
                                int column, int row, RectF destination, boolean flip,
-                               int alpha, int inset) {
+                               int alpha, int inset, boolean hitFlash) {
         if (atlas == null || atlas.isRecycled()) {
             return;
         }
@@ -2196,18 +5336,19 @@ public final class GameView extends View {
         int top = Math.round(safeRow * atlas.getHeight() / (float) rows) + inset;
         int right = Math.round((safeColumn + 1) * atlas.getWidth() / (float) columns) - inset;
         int bottom = Math.round((safeRow + 1) * atlas.getHeight() / (float) rows) - inset;
-        Rect source = new Rect(left, top, right, bottom);
+        atlasSource.set(left, top, right, bottom);
         paint.setAlpha(Math.max(0, Math.min(255, alpha)));
-        paint.setColorFilter(null);
+        paint.setColorFilter(hitFlash ? ACTOR_HIT_FLASH_FILTER : ACTOR_LIFT_FILTER);
         if (flip) {
             canvas.save();
             canvas.scale(-1f, 1f, destination.centerX(), destination.centerY());
-            canvas.drawBitmap(atlas, source, destination, paint);
+            canvas.drawBitmap(atlas, atlasSource, destination, paint);
             canvas.restore();
         } else {
-            canvas.drawBitmap(atlas, source, destination, paint);
+            canvas.drawBitmap(atlas, atlasSource, destination, paint);
         }
         paint.setAlpha(255);
+        paint.setColorFilter(null);
     }
 
     private void drawFallbackFighter(Canvas canvas, RectF bounds, int color,
@@ -2274,28 +5415,31 @@ public final class GameView extends View {
             resetPointers();
             return;
         }
+        if (inventoryHudButton.contains(x, y)) {
+            inventoryReturnScreen = Screen.PLAYING;
+            selectedInventoryItem = -1;
+            screen = Screen.INVENTORY;
+            resetPointers();
+            audio.playUiTap();
+            return;
+        }
         if (new RectF(548f, 222f, 710f, 298f).contains(x, y)) {
             growthReturnScreen = Screen.PLAYING;
             screen = Screen.GROWTH;
             resetPointers();
             return;
         }
-        if (insideCircle(x, y, 88f, 1110f, 70f) && leftPointer < 0) {
-            leftPointer = pointerId;
-            leftHeld = true;
-        } else if (insideCircle(x, y, 218f, 1110f, 70f) && rightPointer < 0) {
-            rightPointer = pointerId;
-            rightHeld = true;
-        } else if (insideCircle(x, y, 153f, 1212f, 56f)) {
+        if (insideCircle(x, y, 92f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 68f)) {
             dashPressed = true;
-        } else if (insideCircle(x, y, 618f, 1084f, 82f)) {
-            attackPressed = true;
-        } else if (insideCircle(x, y, 505f, 1190f, 62f)) {
+        } else if (insideCircle(x, y, 292f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 70f)) {
             spearPressed = true;
-        } else if (insideCircle(x, y, 400f, 1088f, 61f)) {
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        } else if (insideCircle(x, y, 463f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 70f)) {
             siphonPressed = true;
-        } else if (insideCircle(x, y, 618f, 1222f, 56f)) {
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        } else if (insideCircle(x, y, 630f, GameUiLayout.MANUAL_SKILL_CENTER_Y, 70f)) {
             novaPressed = true;
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         }
     }
 
@@ -2309,7 +5453,13 @@ public final class GameView extends View {
             rightHeld = false;
         }
 
-        if (screen == Screen.TITLE) {
+        if (screen == Screen.OFFLINE_REWARD) {
+            if (offlineClaimButton.contains(x, y)) {
+                claimOfflineRewards();
+            }
+        } else if (screen == Screen.STORY) {
+            advanceStory();
+        } else if (screen == Screen.TITLE) {
             if (continueButton.contains(x, y)) {
                 if (continueAvailable) {
                     continueAdventure();
@@ -2353,6 +5503,23 @@ public final class GameView extends View {
                     lastFrameNanos = System.nanoTime();
                 }
             }
+        } else if (screen == Screen.INVENTORY) {
+            for (int index = 0; index < RpgProgress.INVENTORY_SIZE; index++) {
+                if (inventorySlotBounds(index).contains(x, y)) {
+                    selectedInventoryItem = progress.inventory[index] == 0 ? -1 : index;
+                    audio.playUiTap();
+                    return;
+                }
+            }
+            if (inventoryActionButton.contains(x, y)) {
+                manageSelectedInventoryItem();
+            } else if (inventoryCloseButton.contains(x, y)) {
+                screen = inventoryReturnScreen;
+                selectedInventoryItem = -1;
+                if (screen == Screen.PLAYING) {
+                    lastFrameNanos = System.nanoTime();
+                }
+            }
         } else if (screen == Screen.DEFEAT) {
             if (retryButton.contains(x, y)) {
                 retryCurrentWave();
@@ -2369,14 +5536,58 @@ public final class GameView extends View {
     }
 
     public void pauseFromSystem() {
-        if (screen == Screen.PLAYING || screen == Screen.GROWTH) {
+        audio.pause();
+        if (screen == Screen.PLAYING || screen == Screen.GROWTH
+                || screen == Screen.INVENTORY) {
             saveNow();
             screen = Screen.PAUSED;
             resetPointers();
+        } else if (screen == Screen.PAUSED || screen == Screen.STORY) {
+            saveNow();
         }
     }
 
+    public void resumeFromSystem() {
+        audio.resume();
+        lastFrameNanos = System.nanoTime();
+        if (screen == Screen.PAUSED || screen == Screen.STORY) {
+            long nowEpochSeconds = System.currentTimeMillis() / 1000L;
+            applyOfflineRewards(RpgRules.offlineElapsedSeconds(
+                    progressStore.lastActiveEpochSeconds(), nowEpochSeconds));
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        audio.release();
+        recycleBitmap(heroAtlas);
+        recycleBitmap(enemyAtlas);
+        recycleBitmap(bossAtlas);
+        recycleBitmap(ashWardenBossAtlas);
+        recycleBitmap(eclipseSovereignBossAtlas);
+        recycleBitmap(bloodArtsAtlas);
+        recycleBitmap(bloodArtsAnimationAtlasA);
+        recycleBitmap(bloodArtsAnimationAtlasB);
+        recycleBitmap(impactAnimationAtlas);
+        recycleBitmap(currentBackground);
+        heroAtlas = null;
+        enemyAtlas = null;
+        bossAtlas = null;
+        ashWardenBossAtlas = null;
+        eclipseSovereignBossAtlas = null;
+        bloodArtsAtlas = null;
+        bloodArtsAnimationAtlasA = null;
+        bloodArtsAnimationAtlasB = null;
+        impactAnimationAtlas = null;
+        currentBackground = null;
+        super.onDetachedFromWindow();
+    }
+
     public boolean handleBack() {
+        if (screen == Screen.OFFLINE_REWARD) {
+            claimOfflineRewards();
+            return true;
+        }
         if (screen == Screen.PLAYING) {
             saveNow();
             screen = Screen.PAUSED;
@@ -2395,7 +5606,19 @@ public final class GameView extends View {
             }
             return true;
         }
+        if (screen == Screen.INVENTORY) {
+            screen = inventoryReturnScreen;
+            selectedInventoryItem = -1;
+            if (screen == Screen.PLAYING) {
+                lastFrameNanos = System.nanoTime();
+            }
+            return true;
+        }
         if (screen == Screen.NEW_CONFIRM) {
+            screen = Screen.TITLE;
+            return true;
+        }
+        if (screen == Screen.STORY) {
             screen = Screen.TITLE;
             return true;
         }
@@ -2419,12 +5642,143 @@ public final class GameView extends View {
         rightPointer = -1;
         leftHeld = false;
         rightHeld = false;
+        queuedSkillAction = ACTION_NONE;
+        queuedSkillTimer = 0f;
         consumeOneShotInput();
     }
 
     private void showToast(String text, float duration) {
         toastText = text;
         toastTimer = duration;
+    }
+
+    private boolean stashItem(int item) {
+        if (!RpgProgress.isValidItem(item) || item == 0) {
+            return false;
+        }
+        for (int index = 0; index < progress.inventory.length; index++) {
+            if (progress.inventory[index] == 0) {
+                progress.inventory[index] = item;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void manageSelectedInventoryItem() {
+        if (selectedInventoryItem < 0
+                || selectedInventoryItem >= progress.inventory.length) {
+            return;
+        }
+        int item = progress.inventory[selectedInventoryItem];
+        if (item == 0 || !RpgProgress.isValidItem(item)) {
+            selectedInventoryItem = -1;
+            return;
+        }
+        int slot = itemSlot(item);
+        int power = itemPower(item);
+        int current = equippedPower(slot);
+        progress.inventory[selectedInventoryItem] = 0;
+        if (power > current) {
+            if (current > 0) {
+                stashItem(makeItemCode(slot, rarityFromPower(current), current));
+            }
+            setEquippedPower(slot, power);
+            syncHeroStats(false);
+            showToast(itemName(slot, itemRarity(item)) + " 장착 완료", 1.7f);
+            addBurst(hero.x, GROUND_Y - 120f, rarityColor(itemRarity(item)), 15, 145f);
+        } else {
+            int salvage = salvageValue(item);
+            progress.gold += salvage;
+            showToast(itemName(slot, itemRarity(item)) + " 분해  ·  +"
+                    + salvage + " 골드", 1.7f);
+        }
+        selectedInventoryItem = -1;
+        audio.playUiTap();
+        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        saveNow();
+    }
+
+    private int inventoryCount() {
+        int count = 0;
+        for (int item : progress.inventory) {
+            if (item != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int equippedPower(int slot) {
+        return slot == 0 ? progress.weaponPower
+                : slot == 1 ? progress.armorPower : progress.relicPower;
+    }
+
+    private void setEquippedPower(int slot, int power) {
+        if (slot == 0) {
+            progress.weaponPower = power;
+        } else if (slot == 1) {
+            progress.armorPower = power;
+        } else {
+            progress.relicPower = power;
+        }
+    }
+
+    private static RectF inventorySlotBounds(int index) {
+        int column = index % 2;
+        int row = index / 2;
+        float left = column == 0 ? 52f : 376f;
+        float top = 500f + row * 146f;
+        return new RectF(left, top, left + 292f, top + 124f);
+    }
+
+    private static int makeItemCode(int slot, int rarity, int power) {
+        return 1 + RpgRules.clamp(slot, 0, 2) * 10_000
+                + RpgRules.clamp(rarity, 0, 3) * 1_000
+                + RpgRules.clamp(power, 1, 300);
+    }
+
+    private static int itemSlot(int item) {
+        return Math.max(0, item - 1) / 10_000;
+    }
+
+    private static int itemRarity(int item) {
+        return Math.max(0, item - 1) % 10_000 / 1_000;
+    }
+
+    private static int itemPower(int item) {
+        return Math.max(0, item - 1) % 1_000;
+    }
+
+    private static int rarityFromPower(int power) {
+        if (power >= 100) {
+            return 3;
+        }
+        if (power >= 45) {
+            return 2;
+        }
+        return power >= 15 ? 1 : 0;
+    }
+
+    private static int salvageValue(int item) {
+        return Math.max(8, itemPower(item) * 2 + itemRarity(item) * 12);
+    }
+
+    private static String slotName(int slot) {
+        return slot == 0 ? "무기" : slot == 1 ? "갑옷" : "혈석";
+    }
+
+    private static String itemName(int slot, int rarity) {
+        String[][] names = {
+                {"낡은 혈검", "월식 혈검", "왕가의 혈검", "시조의 혈검"},
+                {"그림자 외투", "밤안개 외투", "혈족 군주복", "불멸의 장막"},
+                {"응결 혈석", "푸른 혈석", "혈월의 눈", "녹스의 심장"}
+        };
+        return names[RpgRules.clamp(slot, 0, 2)][RpgRules.clamp(rarity, 0, 3)];
+    }
+
+    private static String itemEffect(int slot, int power) {
+        return (slot == 0 ? "공격 +" : slot == 1 ? "방어 +" : "혈기 +") + power;
     }
 
     private int combatPower() {
@@ -2452,6 +5806,30 @@ public final class GameView extends View {
         return Math.max(target, value - amount);
     }
 
+    private static float lerp(float from, float to, float amount) {
+        return from + (to - from) * RpgRules.clamp(amount, 0f, 1f);
+    }
+
+    private static float smootherStep(float value) {
+        float t = RpgRules.clamp(value, 0f, 1f);
+        return t * t * t * (t * (t * 6f - 15f) + 10f);
+    }
+
+    private static float easeOutCubic(float value) {
+        float t = 1f - RpgRules.clamp(value, 0f, 1f);
+        return 1f - t * t * t;
+    }
+
+    private static float cubicBezier(float start, float control1, float control2,
+                                     float end, float value) {
+        float t = RpgRules.clamp(value, 0f, 1f);
+        float inverse = 1f - t;
+        return inverse * inverse * inverse * start
+                + 3f * inverse * inverse * t * control1
+                + 3f * inverse * t * t * control2
+                + t * t * t * end;
+    }
+
     private static int withAlpha(int color, int alpha) {
         return Color.argb(Math.max(0, Math.min(255, alpha)),
                 Color.red(color), Color.green(color), Color.blue(color));
@@ -2475,6 +5853,16 @@ public final class GameView extends View {
             return String.format(Locale.US, "%.1fK", value / 1_000f);
         }
         return String.valueOf(value);
+    }
+
+    private static String formatOfflineDuration(int seconds) {
+        int safeSeconds = Math.max(0, seconds);
+        int hours = safeSeconds / 3600;
+        int minutes = safeSeconds % 3600 / 60;
+        if (hours > 0) {
+            return hours + "시간 " + minutes + "분";
+        }
+        return Math.max(1, minutes) + "분";
     }
 
     private static String rarityName(int rarity) {
@@ -2505,24 +5893,30 @@ public final class GameView extends View {
 
     private static final class Hero {
         float x;
+        float previousX;
         float velocity;
         float invulnerability;
         float hurtTimer;
         float dashTimer;
         float runDistance;
+        float animClock;
         float deadTimer;
         int facing;
+        int lastFootstep;
         boolean dead;
 
         void reset(float startX, int startFacing) {
             x = startX;
+            previousX = startX;
             velocity = 0f;
             invulnerability = 0f;
             hurtTimer = 0f;
             dashTimer = 0f;
             runDistance = 0f;
+            animClock = 0f;
             deadTimer = 0f;
             facing = startFacing;
+            lastFootstep = 0;
             dead = false;
         }
     }
@@ -2530,9 +5924,11 @@ public final class GameView extends View {
     private static final class Enemy {
         int id;
         int kind;
+        int bossVariant;
         int facing;
         int actionType;
         float x;
+        float previousX;
         float velocity;
         float health;
         float maxHealth;
@@ -2547,6 +5943,8 @@ public final class GameView extends View {
         float animClock;
         float runDistance;
         boolean actionTriggered;
+        boolean elite;
+        boolean phaseTriggered;
         boolean dead;
         boolean rewarded;
     }
@@ -2554,9 +5952,12 @@ public final class GameView extends View {
     private static final class Projectile {
         final List<Integer> hitIds = new ArrayList<>();
         float x;
+        float previousX;
         float y;
         float velocityX;
         float life;
+        float maxLife;
+        float trailTimer;
         float radius;
         int kind;
         int damage;
@@ -2575,6 +5976,31 @@ public final class GameView extends View {
         float life;
         float maxLife;
         int color;
+        int style;
+    }
+
+    private static final class SkillEffect {
+        int kind;
+        int color;
+        float x;
+        float y;
+        float targetX;
+        float targetY;
+        float radius;
+        float direction;
+        float life;
+        float maxLife;
+        float seed;
+    }
+
+    private static final class ImpactEffect {
+        int style;
+        float x;
+        float y;
+        float direction;
+        float rotation;
+        float life;
+        float maxLife;
     }
 
     private static final class FloatingText {
@@ -2583,15 +6009,21 @@ public final class GameView extends View {
         float life;
         float maxLife;
         int color;
+        int emphasis;
         String text;
 
         FloatingText(float x, float y, String text, int color, float life) {
+            this(x, y, text, color, life, 0);
+        }
+
+        FloatingText(float x, float y, String text, int color, float life, int emphasis) {
             this.x = x;
             this.y = y;
             this.text = text;
             this.color = color;
             this.life = life;
             this.maxLife = life;
+            this.emphasis = emphasis;
         }
     }
 }

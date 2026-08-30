@@ -34,12 +34,16 @@ public final class RpgProgressTest {
         source.weaponPower = 19;
         source.armorPower = 16;
         source.relicPower = 14;
+        source.inventory[0] = 2 * 10_000 + 1 * 1_000 + 18 + 1;
+        source.inventory[5] = 3 * 1_000 + 27 + 1;
 
         RpgProgress decoded = RpgProgress.decode(source.encode());
 
         assertEquals(source.encode(), decoded.encode());
         assertEquals(153, decoded.kills);
         assertEquals(19, decoded.weaponPower);
+        assertEquals(source.inventory[0], decoded.inventory[0]);
+        assertEquals(source.inventory[5], decoded.inventory[5]);
     }
 
     @Test
@@ -142,6 +146,21 @@ public final class RpgProgressTest {
         assertEquals(300, progress.weaponPower);
         assertEquals(12, progress.spearLevel);
         assertTrue(RpgProgress.decode(progress.encode()) != null);
+    }
+
+    @Test
+    public void versionThreeSaveLoadsWithEmptyInventory() {
+        String payload = "R3|4|7|12|300|1|2|20|1|0|2|2|1|1|3|1|1|8|7|6";
+        CRC32 crc = new CRC32();
+        crc.update(payload.getBytes(StandardCharsets.UTF_8));
+        RpgProgress decoded = RpgProgress.decode(payload + "#"
+                + String.format(Locale.US, "%08X", crc.getValue()));
+
+        assertEquals(7, decoded.level);
+        assertEquals(8, decoded.weaponPower);
+        for (int item : decoded.inventory) {
+            assertEquals(0, item);
+        }
     }
 
     private static String legacyDuel(long revision, int duelIndex, int health, int damage,

@@ -6,7 +6,8 @@ import java.util.zip.CRC32;
 
 /** Versioned, checksummed permanent RPG progress. Invalid or torn data is rejected. */
 public final class RpgProgress {
-    private static final String VERSION = "R3";
+    private static final String VERSION = "R4";
+    public static final int INVENTORY_SIZE = 6;
 
     public long revision;
     public int level;
@@ -27,12 +28,16 @@ public final class RpgProgress {
     public int weaponPower;
     public int armorPower;
     public int relicPower;
+    public final int[] inventory = new int[INVENTORY_SIZE];
 
     public static RpgProgress fresh() {
         RpgProgress result = new RpgProgress();
         result.level = 1;
         result.wave = 1;
         result.spearLevel = 1;
+        result.weaponPower = 3;
+        result.armorPower = 2;
+        result.relicPower = 1;
         return result;
     }
 
@@ -57,6 +62,7 @@ public final class RpgProgress {
         result.weaponPower = weaponPower;
         result.armorPower = armorPower;
         result.relicPower = relicPower;
+        System.arraycopy(inventory, 0, result.inventory, 0, INVENTORY_SIZE);
         return result;
     }
 
@@ -93,6 +99,11 @@ public final class RpgProgress {
         weaponPower = RpgRules.clamp(weaponPower, 0, 300);
         armorPower = RpgRules.clamp(armorPower, 0, 300);
         relicPower = RpgRules.clamp(relicPower, 0, 300);
+        for (int index = 0; index < INVENTORY_SIZE; index++) {
+            if (!isValidItem(inventory[index])) {
+                inventory[index] = 0;
+            }
+        }
         normalizeUnlocks();
     }
 
@@ -103,6 +114,9 @@ public final class RpgProgress {
                 + "|" + bloodLevel + "|" + recoveryLevel + "|" + spearLevel
                 + "|" + siphonLevel + "|" + novaLevel + "|" + weaponPower
                 + "|" + armorPower + "|" + relicPower;
+        for (int item : inventory) {
+            payload += "|" + item;
+        }
         CRC32 crc = new CRC32();
         crc.update(payload.getBytes(StandardCharsets.UTF_8));
         return payload + "#" + String.format(Locale.US, "%08X", crc.getValue());
@@ -124,7 +138,9 @@ public final class RpgProgress {
             return null;
         }
         String[] values = payload.split("\\|", -1);
-        if (values.length != 20 || !VERSION.equals(values[0])) {
+        boolean versionFour = values.length == 26 && VERSION.equals(values[0]);
+        boolean versionThree = values.length == 20 && "R3".equals(values[0]);
+        if (!versionFour && !versionThree) {
             return null;
         }
         try {
@@ -148,6 +164,11 @@ public final class RpgProgress {
             result.weaponPower = Integer.parseInt(values[17]);
             result.armorPower = Integer.parseInt(values[18]);
             result.relicPower = Integer.parseInt(values[19]);
+            if (versionFour) {
+                for (int index = 0; index < INVENTORY_SIZE; index++) {
+                    result.inventory[index] = Integer.parseInt(values[20 + index]);
+                }
+            }
             return result.isValid() ? result : null;
         } catch (NumberFormatException ignored) {
             return null;
@@ -173,7 +194,8 @@ public final class RpgProgress {
                 && inSkillRange(novaLevel)
                 && inEquipmentRange(weaponPower)
                 && inEquipmentRange(armorPower)
-                && inEquipmentRange(relicPower);
+                && inEquipmentRange(relicPower)
+                && validInventory();
     }
 
     private static boolean inStatRange(int value) {
@@ -186,5 +208,27 @@ public final class RpgProgress {
 
     private static boolean inEquipmentRange(int value) {
         return value >= 0 && value <= 300;
+    }
+
+    private boolean validInventory() {
+        for (int item : inventory) {
+            if (!isValidItem(item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 0 is empty; non-zero codes contain slot, rarity and power. */
+    public static boolean isValidItem(int code) {
+        if (code == 0) {
+            return true;
+        }
+        int value = code - 1;
+        int slot = value / 10_000;
+        int rarity = value % 10_000 / 1_000;
+        int power = value % 1_000;
+        return slot >= 0 && slot <= 2 && rarity >= 0 && rarity <= 3
+                && power >= 1 && power <= 300;
     }
 }

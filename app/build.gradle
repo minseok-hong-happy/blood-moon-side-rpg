@@ -6,6 +6,10 @@ def releaseStorePath = System.getenv("ANDROID_KEYSTORE_FILE")
 def releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
 def releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
 def releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+def isRuntimeSmokeBuild = providers.gradleProperty("runtimeSmoke")
+        .map { it.toBoolean() }
+        .orElse(false)
+        .get()
 
 android {
     namespace "com.example.bloodmoonnightfall"
@@ -13,10 +17,20 @@ android {
 
     defaultConfig {
         applicationId "com.example.bloodmoonnightfall"
-        minSdk 23
+        minSdk 24
         targetSdk 35
-        versionCode 30001
-        versionName "3.0.1"
+        versionCode 50300
+        versionName "5.3.0-visual-overdrive"
+
+        ndk {
+            // Production stays ARM-only. CI builds one x86_64 APK so the exact Android startup
+            // path can be exercised in a hardware-accelerated emulator before any release.
+            if (isRuntimeSmokeBuild) {
+                abiFilters "x86_64"
+            } else {
+                abiFilters "arm64-v8a", "armeabi-v7a"
+            }
+        }
     }
 
     signingConfigs {
@@ -37,9 +51,19 @@ android {
             if (releaseStorePath && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled true
-            shrinkResources true
+            // Godot's native bridge resolves JVM methods by their exact JNI names. Godot's
+            // official Android template does not enable R8, and shrinking 5.0.0 removed
+            // GodotNativeBridge.getRenderView(), causing a deterministic SIGABRT at startup.
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+        runtimeSmoke {
+            // Release-equivalent Java, resources, Godot project and engine, but x86_64 so the
+            // complete startup path can run in an Android emulator. Production stays ARM-only.
+            initWith release
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ["release"]
         }
     }
 
@@ -51,8 +75,18 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // Godot keeps its imported project cache in a hidden .godot asset directory.
+    // Overriding aapt's legacy ignore list makes that directory part of the APK.
+    aaptOptions {
+        ignoreAssetsPattern "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+
 }
 
 dependencies {
+    implementation "org.godotengine:godot:4.7.1.stable"
+    implementation "androidx.fragment:fragment:1.8.6"
     testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20250517"
 }

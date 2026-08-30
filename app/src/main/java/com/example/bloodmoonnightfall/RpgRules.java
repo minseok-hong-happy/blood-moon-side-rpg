@@ -4,10 +4,13 @@ package com.example.bloodmoonnightfall;
 public final class RpgRules {
     public static final float ARENA_LEFT = 54f;
     public static final float ARENA_RIGHT = 666f;
+    public static final float COMBAT_ANCHOR_X = 320f;
+    public static final float COMBAT_RECENTER_TRIGGER_X = 350f;
     public static final int REGION_COUNT = 3;
     public static final int WAVES_PER_REGION = 5;
     public static final int LEVEL_CAP = 60;
     public static final int UPGRADE_CAP = 30;
+    public static final int OFFLINE_REWARD_CAP_SECONDS = 8 * 60 * 60;
 
     public static final int ENEMY_THRALL = 0;
     public static final int ENEMY_HUNTER = 1;
@@ -70,6 +73,31 @@ public final class RpgRules {
                 * (1.55f + clamp(skillLevel, 1, 12) * 0.16f)));
     }
 
+    public static int rushDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.28f + clamp(heroLevel, 3, LEVEL_CAP) * 0.018f)));
+    }
+
+    public static int bladeRainDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.08f + clamp(heroLevel, 6, LEVEL_CAP) * 0.014f)));
+    }
+
+    public static int bloodChainDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.18f + clamp(heroLevel, 9, LEVEL_CAP) * 0.016f)));
+    }
+
+    public static int crimsonPillarDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (1.48f + clamp(heroLevel, 12, LEVEL_CAP) * 0.019f)));
+    }
+
+    public static int eclipseDamage(int attackPower, int heroLevel) {
+        return Math.max(1, Math.round(Math.max(1, attackPower)
+                * (2.15f + clamp(heroLevel, 15, LEVEL_CAP) * 0.024f)));
+    }
+
     public static float recoveryPerSecond(int recoveryLevel) {
         return 0.65f + clamp(recoveryLevel, 0, UPGRADE_CAP) * 0.22f;
     }
@@ -84,7 +112,47 @@ public final class RpgRules {
     public static int waveEnemyCount(int region, int wave) {
         int safeRegion = clamp(region, 0, REGION_COUNT - 1);
         int safeWave = clamp(wave, 1, WAVES_PER_REGION);
-        return safeWave == WAVES_PER_REGION ? 1 : 4 + safeWave + safeRegion * 2;
+        return safeWave == WAVES_PER_REGION ? 18 + safeRegion * 4
+                : 26 + safeWave * 6 + safeRegion * 5;
+    }
+
+    public static int reinforcementBatchSize(int activeEnemies, int remainingEnemies,
+                                             int maximumActiveEnemies) {
+        int active = Math.max(0, activeEnemies);
+        int remaining = Math.max(0, remainingEnemies);
+        int availableSlots = Math.max(0, maximumActiveEnemies - active);
+        int desiredBatch = active <= 4 ? 4 : active <= 7 ? 2 : 1;
+        return Math.min(Math.min(desiredBatch, remaining), availableSlots);
+    }
+
+    public static int bossVariantForRegion(int region) {
+        return clamp(region, 0, REGION_COUNT - 1);
+    }
+
+    public static boolean isEliteSpawn(int wave, int spawnSerial, int waveTotal) {
+        int safeWave = clamp(wave, 1, WAVES_PER_REGION);
+        int midpoint = Math.max(4, Math.max(1, waveTotal) / 2);
+        return safeWave >= 2 && safeWave < WAVES_PER_REGION && spawnSerial == midpoint;
+    }
+
+    public static int eliteHealth(int baseHealth) {
+        return Math.max(1, Math.round(Math.max(1, baseHealth) * 2.45f));
+    }
+
+    public static int eliteDamage(int baseDamage) {
+        return Math.max(1, Math.round(Math.max(1, baseDamage) * 1.28f));
+    }
+
+    public static int eliteReward(int baseReward) {
+        return Math.max(1, Math.round(Math.max(1, baseReward) * 2.2f));
+    }
+
+    /** Awards an extra gold burst at every fifth uninterrupted kill. */
+    public static int huntChainBonusGold(int chain, int baseGold) {
+        if (chain < 5 || chain % 5 != 0) {
+            return 0;
+        }
+        return Math.max(20, Math.max(1, baseGold) * (1 + chain / 5));
     }
 
     public static int enemyMaxHealth(int kind, int region, int wave, int heroLevel,
@@ -133,6 +201,40 @@ public final class RpgRules {
         int safeRarity = clamp(rarity, 0, 3);
         return clamp(2 + region * 5 + wave * 2 + heroLevel / 2
                 + safeRarity * (4 + region * 2) + chapterClears * 3, 1, 300);
+    }
+
+    public static int offlineElapsedSeconds(long lastActiveEpochSeconds,
+                                            long nowEpochSeconds) {
+        if (lastActiveEpochSeconds <= 0L || nowEpochSeconds <= lastActiveEpochSeconds) {
+            return 0;
+        }
+        long elapsed = Math.min(nowEpochSeconds - lastActiveEpochSeconds,
+                OFFLINE_REWARD_CAP_SECONDS);
+        return (int) elapsed;
+    }
+
+    public static int offlineGoldReward(int elapsedSeconds, int level, int region, int wave) {
+        int minutes = clamp(elapsedSeconds, 0, OFFLINE_REWARD_CAP_SECONDS) / 60;
+        long perMinute = 10L + clamp(level, 1, LEVEL_CAP) * 2L
+                + clamp(region, 0, REGION_COUNT - 1) * 8L
+                + clamp(wave, 1, WAVES_PER_REGION) * 3L;
+        return (int) Math.min(2_000_000L, minutes * perMinute);
+    }
+
+    public static int offlineXpReward(int elapsedSeconds, int level, int region, int wave) {
+        int minutes = clamp(elapsedSeconds, 0, OFFLINE_REWARD_CAP_SECONDS) / 60;
+        long perMinute = 3L + clamp(level, 1, LEVEL_CAP) / 2L
+                + clamp(region, 0, REGION_COUNT - 1) * 3L
+                + clamp(wave, 1, WAVES_PER_REGION);
+        return (int) Math.min(1_000_000L, minutes * perMinute);
+    }
+
+    public static float combatRecenteringShift(float heroX, float deltaSeconds) {
+        if (heroX <= COMBAT_RECENTER_TRIGGER_X || deltaSeconds <= 0f) {
+            return 0f;
+        }
+        return Math.min(heroX - COMBAT_ANCHOR_X,
+                620f * clamp(deltaSeconds, 0f, 0.05f));
     }
 
     public static int clamp(int value, int minimum, int maximum) {

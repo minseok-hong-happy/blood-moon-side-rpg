@@ -1,0 +1,47 @@
+; VAYLORN Godot engine project embedded in the Android application assets.
+; Edit with Godot 4.7.1 stable or newer compatible 4.7 maintenance release.
+
+config_version=5
+
+[application]
+
+config/name="VAYLORN"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/icon="res://art/app_icon_round.png"
+config/quit_on_go_back=false
+
+[audio]
+
+driver/enable_input=false
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/size/window_width_override=360
+window/size/window_height_override=640
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+window/energy_saving/keep_screen_on=true
+
+[input]
+
+interact={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":32,"unicode":32)]
+}
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.007, 0.008, 0.018, 1)
+
+[physics]
+
+common/physics_ticks_per_second=60
+
